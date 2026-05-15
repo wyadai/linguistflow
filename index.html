@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Spanisch lernen — Guatemala</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="topbar">
+    <button class="hamburger-btn" id="hamburger-btn" title="Menü">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <div class="topbar-title">
+      <h1>ES Sätze</h1>
+      <div class="subtitle">Spanisch (Guatemala) — Alltag</div>
+    </div>
+    <div class="topbar-spacer"></div>
+  </div>
+
+  <div class="container">
+    <div class="progress-row">
+      <span id="progress-text">0 von 0 gemeistert</span>
+      <span id="progress-percent">0%</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+
+    <div class="mode-buttons">
+      <button class="mode-btn primary" id="listen-mode-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-7h3z"/><path d="M3 19a2 2 0 0 0 2 2h1v-7H3z"/></svg>
+        Anhören &amp; Wiederholen
+      </button>
+      <button class="mode-btn secondary" id="recall-mode-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        Active Recall
+      </button>
+    </div>
+    <div class="hint" id="mode-hint">Spanisch zuerst lesen/hören, Deutsch als Hilfe darunter.</div>
+
+    <div class="rating-filter" id="rating-filter"></div>
+
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <div class="toggle-wrap">
+          <span>Übersetzung</span>
+          <div class="toggle on" id="translate-toggle"></div>
+        </div>
+        <div class="toggle-wrap" id="autoplay-wrap">
+          <span>Auto-Play</span>
+          <div class="toggle on" id="autoplay-toggle"></div>
+        </div>
+        <div class="main-sort-wrap">
+          <span class="main-sort-label">Reihenfolge</span>
+          <select id="main-sort" class="main-sort-select">
+            <option value="oldest">Älteste zuerst</option>
+            <option value="newest">Neueste zuerst</option>
+            <option value="random">Zufällig</option>
+          </select>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <button class="icon-btn" id="search-btn" title="Suchen">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <input type="text" class="search-bar" id="search-input" placeholder="Suchen (deutsch oder spanisch)..." />
+
+    <div id="cards"></div>
+    <div class="no-results" id="no-results" style="display:none;">Keine Sätze in dieser Auswahl.</div>
+  </div>
+
+  <!-- Side panel -->
+  <div class="side-overlay" id="side-overlay"></div>
+  <aside class="side-panel" id="side-panel">
+    <div class="side-panel-header">
+      <h2>Menü</h2>
+      <button class="icon-btn" id="close-side-panel" title="Schliessen">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="side-panel-body">
+
+      <details class="side-section" id="new-sentence-section">
+        <summary><span class="side-sum-icon">+</span> Neuen Satz hinzufügen</summary>
+        <div class="side-section-content">
+          <textarea id="new-de-input" placeholder="Deutscher Satz..." rows="2"></textarea>
+          <div class="side-label">Kategorien (optional)</div>
+          <div class="new-cat-picker" id="new-cat-picker"></div>
+          <button class="side-btn primary" id="add-sentence-btn">Hinzufügen</button>
+        </div>
+      </details>
+
+      <details class="side-section" id="translation-section">
+        <summary><span class="side-sum-icon">⇄</span> Übersetzungen <span id="pending-count" class="side-badge"></span></summary>
+        <div class="side-section-content">
+          <div class="api-block">
+            <div class="side-label">Anthropic API Key <span id="api-key-status" class="api-status"></span></div>
+            <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" />
+            <div class="api-actions">
+              <button class="side-btn" id="save-api-key-btn">Speichern</button>
+              <button class="side-btn" id="clear-api-key-btn">Löschen</button>
+            </div>
+            <small class="side-tiny">Wird nur lokal im Browser gespeichert. Bei öffentlichem Hosting Vorsicht: ein Angreifer mit Zugriff auf dein Gerät könnte den Key auslesen.</small>
+          </div>
+
+          <button class="side-btn primary" id="translate-api-btn">
+            <span id="translate-api-btn-text">Mit Claude API übersetzen</span>
+          </button>
+
+          <details class="manual-block">
+            <summary class="manual-summary">Manuell (über Claude-Chat)</summary>
+            <div class="side-hint-text">
+              <ol class="side-steps">
+                <li>"Prompt kopieren" klicken</li>
+                <li>Im Claude-Chat einfügen, Antwort kopieren</li>
+                <li>Hier einfügen, "Anwenden"</li>
+              </ol>
+            </div>
+            <button class="side-btn" id="copy-prompt-btn">Prompt kopieren</button>
+            <textarea id="paste-translations" placeholder="Antwort von Claude hier einfügen..." rows="4"></textarea>
+            <button class="side-btn" id="apply-translations-btn">Anwenden</button>
+          </details>
+        </div>
+      </details>
+
+      <details class="side-section" id="audio-section">
+        <summary><span class="side-sum-icon">🔊</span> Audio (ElevenLabs)</summary>
+        <div class="side-section-content">
+          <div class="api-block">
+            <div class="side-label">ElevenLabs API Key <span id="el-key-status" class="api-status"></span></div>
+            <input type="password" id="el-key-input" placeholder="sk_..." autocomplete="off" />
+            <div class="side-label" style="margin-top:6px;">Voice ID</div>
+            <input type="text" id="el-voice-input" placeholder="z.B. 21m00Tcm4TlvDq8ikWAM (Rachel)" autocomplete="off" />
+            <div class="api-actions">
+              <button class="side-btn" id="save-el-btn">Speichern</button>
+              <button class="side-btn" id="clear-el-btn">Löschen</button>
+            </div>
+            <small class="side-tiny">Voice-Bibliothek: <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener">elevenlabs.io/voice-library</a> — eine Stimme aussuchen, Voice-ID kopieren. Standard: Rachel (Free-Tier kompatibel). Achtung: Library-Voices brauchen Starter-Abo ($5/Mo).</small>
+          </div>
+
+          <button class="side-btn primary" id="generate-all-audio-btn">
+            <span id="generate-all-audio-text">Audios für alle generieren</span>
+          </button>
+          <small class="side-tiny">Generiert Audio für alle User-Sätze, die übersetzt sind und noch kein Audio haben.</small>
+        </div>
+      </details>
+
+      <details class="side-section" id="my-sentences-section">
+        <summary><span class="side-sum-icon">📋</span> Meine Sätze <span id="my-sentences-count" class="side-badge"></span></summary>
+        <div class="side-section-content">
+          <div class="us-toolbar">
+            <div class="us-tabs">
+              <button class="us-tab active" data-tab="active" id="us-tab-active">Aktiv <span class="us-tab-count" id="us-count-active">0</span></button>
+              <button class="us-tab" data-tab="archived" id="us-tab-archived">Archiv <span class="us-tab-count" id="us-count-archived">0</span></button>
+            </div>
+            <select id="us-sort" class="us-sort">
+              <option value="newest">Neueste zuerst</option>
+              <option value="oldest">Älteste zuerst</option>
+              <option value="random">Zufällig</option>
+            </select>
+          </div>
+          <div id="user-sentences-list"></div>
+        </div>
+      </details>
+
+      <details class="side-section" id="sync-section">
+        <summary><span class="side-sum-icon">⇅</span> Daten Backup / Sync</summary>
+        <div class="side-section-content">
+          <button class="side-btn" id="export-data-btn">Daten exportieren (.json)</button>
+          <label class="side-btn import-label" for="import-data-input">Daten importieren</label>
+          <input type="file" id="import-data-input" accept="application/json,.json" hidden />
+          <small class="side-tiny">Enthält: User-Sätze, Ratings, Mnemonics, Auto-Play. <strong>Kein API-Key</strong>. Für Handy-Sync: Export → in Cloud (iCloud/Drive) → Handy öffnen → Import.</small>
+        </div>
+      </details>
+
+      <div class="side-section side-section-static">
+        <div class="side-section-title">Kategorien</div>
+        <div class="cat-filter" id="cat-filter"></div>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <div class="player">
+    <div class="player-inner">
+      <div class="player-info">
+        <div class="player-num" id="player-num">#1</div>
+        <div class="player-text player-text-es" id="player-text-es">—</div>
+        <div class="player-text player-text-de" id="player-text-de">—</div>
+      </div>
+      <div class="player-controls">
+        <button class="ctrl-btn" id="prev-btn" title="Vorheriger">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12l8.5 6V6z"/></svg>
+        </button>
+        <button class="ctrl-btn main" id="play-btn" title="Abspielen / Aufdecken">
+          <svg id="play-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="pause-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+        </button>
+        <button class="ctrl-btn" id="next-btn" title="Nächster">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+        </button>
+      </div>
+      <div class="player-extras">
+        <button class="speed-btn" id="speed-btn">1.0×</button>
+        <button class="speed-btn" id="repeat-btn">Rep 1×</button>
+      </div>
+    </div>
+  </div>
+
+  <audio id="audio" preload="none"></audio>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

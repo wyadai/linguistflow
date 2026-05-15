@@ -1,0 +1,84 @@
+Ich habe uns Kaffee gekocht.	Hice café para nosotros. [sound:es_guate_01.mp3]	Kueche_Essen Familie_Freunde
+Soll ich dir auch eine Tasse einschenken oder möchtest du noch ein wenig warten?	¿Te sirvo una taza también o quieres esperar un poquito? [sound:es_guate_02.mp3]	Kueche_Essen Smalltalk_Hoeflichkeit
+Ich hoffe es hat keinen Stau auf der Autobahn.	Espero que no haya presa en la carretera. [sound:es_guate_03.mp3]	Reisen_Verkehr
+Hast du gut geschlafen?	¿Dormiste bien? [sound:es_guate_04.mp3]	Familie_Freunde
+Hast du gut geträumt?	¿Soñaste bonito? [sound:es_guate_05.mp3]	Familie_Freunde
+Du siehst aus wie eine Prinzessin.	Te ves como una princesa. [sound:es_guate_06.mp3]	Familie_Freunde Smalltalk_Hoeflichkeit
+Ich weiss nicht was ich anziehen soll.	No sé qué ponerme. [sound:es_guate_07.mp3]	Wohnen_Haushalt
+Ist meine Jeans in der Wäsche?	¿Mis jeans están en el lavado? [sound:es_guate_08.mp3]	Wohnen_Haushalt
+Ich suche meinen braunen Lieblingspullover.	Estoy buscando mi suéter café favorito. [sound:es_guate_09.mp3]	Wohnen_Haushalt
+Ich finde meine Geldbörse nicht. Hast du sie gesehen?	No encuentro mi cartera. ¿La has visto? [sound:es_guate_10.mp3]	Wohnen_Haushalt
+Hast du Yuna bereits gefüttert? Hast du sie schon rausgelassen?	¿Ya le diste de comer a Yuna? ¿Ya la sacaste? [sound:es_guate_11.mp3]	Familie_Freunde Wohnen_Haushalt
+Ich lasse Yuna heute zuhause. Ich habe einen vollen Tag heute.	Hoy voy a dejar a Yuna en la casa. Tengo un día lleno. [sound:es_guate_12.mp3]	Familie_Freunde Arbeit
+Haben wir noch einen Knochen für Yuna?	¿Todavía tenemos un hueso para Yuna? [sound:es_guate_13.mp3]	Familie_Freunde Kueche_Essen
+Ich gehe heute noch ins Gym mit Kiara.	Hoy voy al gimnasio con Kiara. [sound:es_guate_14.mp3]	Hobby_Freizeit Familie_Freunde
+Das Training sollte heute nicht lange dauern.	El entrenamiento no debería durar mucho hoy. [sound:es_guate_15.mp3]	Hobby_Freizeit
+Ich bin um 20:00 Uhr wieder da und koche uns dann etwas.	Regreso a las ocho de la noche y luego nos cocino algo. [sound:es_guate_16.mp3]	Familie_Freunde Kueche_Essen
+Hast du auf etwas Besonderes Lust zum Essen?	¿Se te antoja algo en especial para comer? [sound:es_guate_17.mp3]	Kueche_Essen Familie_Freunde
+Wird es heute warm?	¿Va a hacer calor hoy? [sound:es_guate_18.mp3]	Wetter_Natur
+Ich muss noch meine Zähne putzen, danach bin ich ready.	Todavía tengo que lavarme los dientes, después estoy listo. [sound:es_guate_19.mp3]	Wohnen_Haushalt Gesundheit_Koerper
+Soll ich die Kleine auf ihren Stuhl setzen?	¿La siento a la nena en su silla? [sound:es_guate_20.mp3]	Familie_Freunde Kueche_Essen
+Wir müssen ihr den Body wechseln, sie hat ihn voll gesabbert.	Hay que cambiarle el bodi, lo dejó todo babeado. [sound:es_guate_21.mp3]	Familie_Freunde Wohnen_Haushalt
+Ui, bist du am sabbern?	¡Uy! ¿Estás babeando? [sound:es_guate_22.mp3]	Familie_Freunde
+Du hast das schönste Lächeln auf der ganzen Welt.	Tienes la sonrisa más bonita del mundo entero. [sound:es_guate_23.mp3]	Familie_Freunde Smalltalk_Hoeflichkeit
+Ich habe ihre Windeln schon gewechselt.	Ya le cambié el pañal. [sound:es_guate_24.mp3]	Familie_Freunde
+Ihre Backen sind süss.	Tiene unos cachetes bien lindos. [sound:es_guate_25.mp3]	Familie_Freunde Smalltalk_Hoeflichkeit
+Ihr Hals ist etwas dreckig. In den Falten sammelt sich immer Dreck an.	Tiene el cuello un poco sucio. En los pliegues siempre se le junta mugre. [sound:es_guate_26.mp3]	Familie_Freunde Gesundheit_Koerper
+Sie wird jeden Tag grösser. Sie wächst zu schnell.	Cada día está más grande. Está creciendo muy rápido. [sound:es_guate_27.mp3]	Familie_Freunde
+Sie ist schon am Gähnen. Ich glaube sie sollte schlafen.	Ya está bostezando. Creo que ya debería dormir. [sound:es_guate_28.mp3]	Familie_Freunde
+Schau dir ihre wässerigen Augen an. Sie ist müde.	Mira cómo tiene los ojitos aguados. Está cansada. [sound:es_guate_29.mp3]	Familie_Freunde
+Hat sie schon getrunken?	¿Ya tomó su leche? [sound:es_guate_30.mp3]	Familie_Freunde Kueche_Essen
+Ich kann ihr sonst noch ihr Fläschchen geben.	Si no, le puedo dar su pacha. [sound:es_guate_31.mp3]	Familie_Freunde Kueche_Essen
+Ich gehe mit Yuna im Wald spazieren. Kommst du mit?	Voy a sacar a Yuna al bosque. ¿Vienes conmigo? [sound:es_guate_32.mp3]	Familie_Freunde Hobby_Freizeit
+Wo ist der Kinderwagen?	¿Dónde está la carriola? [sound:es_guate_33.mp3]	Familie_Freunde
+Wollen wir auf die Wiese, an den See oder in den Wald spazieren gehen?	¿Vamos a caminar al prado, al lago o al bosque? [sound:es_guate_34.mp3]	Hobby_Freizeit Wetter_Natur
+Wie war dein Tag? Warst du draussen?	¿Cómo te fue hoy? ¿Saliste a algún lado? [sound:es_guate_35.mp3]	Smalltalk_Hoeflichkeit Familie_Freunde
+Bist du mit Yuna spazieren gewesen?	¿Sacaste a Yuna a caminar? [sound:es_guate_36.mp3]	Familie_Freunde Hobby_Freizeit
+Yuna hatte heute einen langweiligen Tag. Ich hatte keine Zeit für sie.	Yuna tuvo un día aburrido hoy. No tuve tiempo para ella. [sound:es_guate_37.mp3]	Familie_Freunde
+Wir hatten heute non-stop Anrufe von Kunden.	Hoy tuvimos llamadas de clientes sin parar. [sound:es_guate_38.mp3]	Arbeit
+Ich staubsauge nachher noch oder stört es dich?	Voy a aspirar más tarde, ¿o te molesta? [sound:es_guate_39.mp3]	Wohnen_Haushalt
+Ich lese noch ein Kapitel, dann gehe ich die Zähne putzen und mache mich ready fürs Bett.	Voy a leer un capítulo más, después me lavo los dientes y me alisto para dormir. [sound:es_guate_40.mp3]	Hobby_Freizeit Wohnen_Haushalt
+Bleibst du noch wach?	¿Te vas a quedar despierta? [sound:es_guate_41.mp3]	Familie_Freunde Smalltalk_Hoeflichkeit
+Ich nehme den Abfall mit runter, wenn ich arbeiten gehe.	Me llevo la basura cuando me vaya al trabajo. [sound:es_guate_42.mp3]	Wohnen_Haushalt Arbeit
+Morgen arbeite ich nicht lange. Ich sollte um 17:00 Uhr zuhause sein.	Mañana no trabajo mucho. Debería estar en casa a las cinco. [sound:es_guate_43.mp3]	Arbeit
+Hast du Lust auf ein Dessert? Ich habe ein Rezept auf Insta gesehen.	¿Se te antoja un postre? Vi una receta en Insta. [sound:es_guate_44.mp3]	Kueche_Essen Familie_Freunde
+Muss ich noch tanken?	¿Tengo que echarle gasolina al carro? [sound:es_guate_45.mp3]	Reisen_Verkehr
+Es ist zu dunkel hier drin. Kannst du ein Licht anmachen?	Está muy oscuro aquí adentro. ¿Puedes prender una luz? [sound:es_guate_46.mp3]	Wohnen_Haushalt
+Warum sitzt du im Dunkeln?	¿Por qué estás sentada a oscuras? [sound:es_guate_47.mp3]	Wohnen_Haushalt Familie_Freunde
+Es ist frisch hier drin. Haben wir ein Fenster offen?	Está fresco aquí adentro. ¿Tenemos una ventana abierta? [sound:es_guate_48.mp3]	Wohnen_Haushalt Wetter_Natur
+Ich habe nichts zum Anziehen.	No tengo nada que ponerme. [sound:es_guate_49.mp3]	Wohnen_Haushalt
+Ich muss endlich meine Kleider entsorgen, welche ich nie anziehe.	Por fin tengo que botar la ropa que nunca me pongo. [sound:es_guate_50.mp3]	Wohnen_Haushalt
+Wir haben keine Zahnpasta mehr.	Ya no tenemos pasta de dientes. [sound:es_guate_51.mp3]	Wohnen_Haushalt Gesundheit_Koerper
+Meine Haut ist trocken. Ich muss sie eincremen.	Tengo la piel seca. Tengo que ponerme crema. [sound:es_guate_52.mp3]	Gesundheit_Koerper
+Hast du den Wecker gestellt?	¿Pusiste la alarma? [sound:es_guate_53.mp3]	Wohnen_Haushalt
+Haben wir noch WC-Papier im Reduit?	¿Todavía tenemos papel higiénico en la bodega? [sound:es_guate_54.mp3]	Wohnen_Haushalt
+Wir müssen den Pflanzen Wasser geben.	Tenemos que regar las plantas. [sound:es_guate_55.mp3]	Wohnen_Haushalt
+Ich muss durch 4 Türen durchgehen, um in die Garage zu kommen.	Tengo que pasar por cuatro puertas para llegar al garaje. [sound:es_guate_56.mp3]	Wohnen_Haushalt
+Soll ich aussen rum oder auf die Autobahn fahren?	¿Me voy por los pueblos o por la autopista? [sound:es_guate_57.mp3]	Reisen_Verkehr
+Du siehst aus wie deine Mutter, wenn du lachst.	Te pareces a tu mamá cuando te ríes. [sound:es_guate_58.mp3]	Familie_Freunde Smalltalk_Hoeflichkeit
+Ich habe kaum mehr Kalorien offen, ich darf nicht mehr viel essen heute.	Ya casi no me quedan calorías, hoy ya no puedo comer mucho más. [sound:es_guate_59.mp3]	Gesundheit_Koerper Kueche_Essen
+Ich bin gestern sehr schnell eingeschlafen.	Ayer me dormí bien rápido. [sound:es_guate_60.mp3]	Smalltalk_Hoeflichkeit Gesundheit_Koerper
+Ich habe geschlafen wie ein Stein.	Dormí como un tronco. [sound:es_guate_61.mp3]	Smalltalk_Hoeflichkeit Gesundheit_Koerper
+Hast du eingestellt, dass das Licht dunkler wird?	¿Programaste la luz para que se vaya bajando? [sound:es_guate_62.mp3]	Wohnen_Haushalt
+Mein Telefon lädt gerade auf.	Mi celular se está cargando. [sound:es_guate_63.mp3]	Smalltalk_Hoeflichkeit
+Ich war letzte Woche 4mal beim Sport.	La semana pasada hice ejercicio cuatro veces. [sound:es_guate_64.mp3]	Hobby_Freizeit Gesundheit_Koerper
+Ich möchte in der Zukunft mindestens 1mal in der Woche joggen gehen. Kommst du mit?	De ahora en adelante quiero salir a correr por lo menos una vez a la semana. ¿Vienes conmigo? [sound:es_guate_65.mp3]	Hobby_Freizeit Gesundheit_Koerper Familie_Freunde
+Hat das Baby ein Geräusch gemacht? Ist es aufgewacht?	¿La nena hizo un ruido? ¿Ya se despertó? [sound:es_guate_66.mp3]	Familie_Freunde
+Soll ich den Tisch decken?	¿Pongo la mesa? [sound:es_guate_67.mp3]	Kueche_Essen Wohnen_Haushalt
+Braucht es ein Messer oder reichen Gabeln?	¿Hace falta cuchillo o con tenedor basta? [sound:es_guate_68.mp3]	Kueche_Essen
+Für wie viele soll ich decken?	¿Para cuántos pongo la mesa? [sound:es_guate_69.mp3]	Kueche_Essen Familie_Freunde
+Kannst du den Herd abschalten und den Dampfabzug anmachen?	¿Puedes apagar la estufa y prender el extractor? [sound:es_guate_70.mp3]	Kueche_Essen Wohnen_Haushalt
+Ihre Haare sind noch etwas ölig.	Tiene el pelo todavía un poco grasoso. [sound:es_guate_71.mp3]	Familie_Freunde Gesundheit_Koerper
+Welche Jacke soll ich ihr anziehen?	¿Qué chumpa le pongo? [sound:es_guate_72.mp3]	Familie_Freunde Wohnen_Haushalt
+Ist der Body noch frisch oder soll ich einen neuen nehmen?	¿El bodi todavía está limpio o le pongo uno nuevo? [sound:es_guate_73.mp3]	Familie_Freunde Wohnen_Haushalt
+Kannst du das Licht einschalten?	¿Puedes prender la luz? [sound:es_guate_74.mp3]	Wohnen_Haushalt
+Ich glaube es fängt stärker an zu regnen.	Creo que está empezando a llover más fuerte. [sound:es_guate_75.mp3]	Wetter_Natur
+Für den Salat brauchen wir die Schüssel, das Salatbesteck und die Salatsauce.	Para la ensalada necesitamos el tazón, los cubiertos de ensalada y el aderezo. [sound:es_guate_76.mp3]	Kueche_Essen
+Kannst du den Wasserhahn abstellen? Das Wasser läuft noch.	¿Puedes cerrar el chorro? Todavía está corriendo el agua. [sound:es_guate_77.mp3]	Wohnen_Haushalt
+Hast du den Briefkasten geleert? Hat es Post für mich?	¿Vaciaste el buzón? ¿Hay correo para mí? [sound:es_guate_78.mp3]	Wohnen_Haushalt Familie_Freunde
+Haben wir noch Tiefkühlgemüse im Keller?	¿Todavía tenemos verduras congeladas en el sótano? [sound:es_guate_79.mp3]	Kueche_Essen Wohnen_Haushalt
+Ich komme heute nicht in die Gänge. Ich brauche noch etwas mehr Kaffee.	Hoy no logro arrancar. Necesito un poco más de café. [sound:es_guate_80.mp3]	Smalltalk_Hoeflichkeit Kueche_Essen
+Hast du schon etwas geplant für das Mittagessen?	¿Ya pensaste algo para el almuerzo? [sound:es_guate_81.mp3]	Kueche_Essen Familie_Freunde
+Es regnet, aber ich mache nachher eine kurze Runde auf der Wiese mit Yuna.	Está lloviendo, pero más tarde doy una vuelta corta por el prado con Yuna. [sound:es_guate_82.mp3]	Hobby_Freizeit Wetter_Natur Familie_Freunde
+Heute ist es richtig ungemütlich mit diesem Wetter. Alles ist grau.	Hoy está bien feo el clima. Todo está gris. [sound:es_guate_83.mp3]	Wetter_Natur
+Hast du dich verschluckt?	¿Te atragantaste? [sound:es_guate_84.mp3]	Familie_Freunde Gesundheit_Koerper
