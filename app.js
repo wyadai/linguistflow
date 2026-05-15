@@ -1,3 +1,10 @@
+// ===== Supabase configuration =====
+const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN4YmdxdHZsaHdmeW5mcWRkeHdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4Nzk2NzMsImV4cCI6MjA5NDQ1NTY3M30.IIJLdLMZF80Sdrdv9zr90qxRyPalkaXNbwQu1T_NAsQ";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let currentUser = null;
+let _suppressSync = false;  // Used during data pull to avoid pushing back what we just pulled
+
 // ===== State =====
 const state = {
   filteredIds: [],
@@ -87,7 +94,13 @@ function loadJSON(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || "null") || fallback; }
   catch (e) { return fallback; }
 }
-function saveJSON(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+function saveJSON(key, val) {
+  localStorage.setItem(key, JSON.stringify(val));
+  if (!currentUser || _suppressSync) return;
+  if (key === "hl_user_sentences") queuePushSentences();
+  else if (key === "hl_ratings" || key === "hl_mnemonics" ||
+           key === "hl_shown_mnemonics" || key === "hl_autoplay") queuePushProfile();
+}
 
 // ===== Unified sentence access =====
 function allSentences() { return DATA.sentences.concat(state.userSentences); }
@@ -140,8 +153,6 @@ const pendingCountEl = document.getElementById("pending-count");
 const toastEl = document.getElementById("toast");
 const userSentencesListEl = document.getElementById("user-sentences-list");
 const mySentencesCountEl = document.getElementById("my-sentences-count");
-const exportDataBtn = document.getElementById("export-data-btn");
-const importDataInput = document.getElementById("import-data-input");
 const elKeyInput = document.getElementById("el-key-input");
 const elVoiceInput = document.getElementById("el-voice-input");
 const elKeyStatus = document.getElementById("el-key-status");
@@ -1263,84 +1274,269 @@ usTabArchived.onclick = function () {
 usSortEl.onchange = function () {
   state.usSort = usSortEl.value;
   localStorage.setItem("hl_us_sort", state.usSort);
+  queuePushProfile();
   buildUserSentencesList();
 };
 
-
-// ===== Backup / Sync (manual export / import) =====
-function exportData() {
-  const payload = {
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    userSentences: state.userSentences,
-    ratings: state.ratings,
-    mnemonics: state.mnemonics,
-    shownMnemonics: [...state.shownMnemonics],
-    autoPlay: state.autoPlay,
-  };
-  const json = JSON.stringify(payload, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const today = new Date().toISOString().slice(0, 10);
-  a.href = url;
-  a.download = "lernapp-data-" + today + ".json";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-  showToast("Export gestartet (lernapp-data-" + today + ".json).");
-}
-
-function importData(file) {
-  const reader = new FileReader();
-  reader.onload = function (e) {
-    let data;
-    try { data = JSON.parse(e.target.result); }
-    catch (err) { showToast("Datei ist kein gültiges JSON.", 4000); return; }
-    if (!data || typeof data !== "object" || !data.version) {
-      showToast("Unbekanntes Format (version fehlt).", 4000); return;
-    }
-    const summary =
-      (Array.isArray(data.userSentences) ? data.userSentences.length : 0) + " User-Sätze, " +
-      Object.keys(data.ratings || {}).length + " Ratings, " +
-      Object.keys(data.mnemonics || {}).length + " Mnemonics";
-    if (!confirm("Import enthält:\n" + summary + "\n\nBestehende Daten in diesem Browser werden ÜBERSCHRIEBEN. Fortfahren?")) return;
-    if (Array.isArray(data.userSentences)) state.userSentences = data.userSentences;
-    if (data.ratings && typeof data.ratings === "object") state.ratings = data.ratings;
-    if (data.mnemonics && typeof data.mnemonics === "object") state.mnemonics = data.mnemonics;
-    if (Array.isArray(data.shownMnemonics)) state.shownMnemonics = new Set(data.shownMnemonics);
-    if (typeof data.autoPlay === "boolean") state.autoPlay = data.autoPlay;
-    saveJSON("hl_user_sentences", state.userSentences);
-    saveJSON("hl_ratings", state.ratings);
-    saveJSON("hl_mnemonics", state.mnemonics);
-    saveShownMnemonics();
-    saveJSON("hl_autoplay", state.autoPlay);
-    buildRatingFilter();
-    applyFilter();
-    updateProgress();
-    updatePendingBadge();
-    updateAutoplayUI();
-    buildUserSentencesList();
-    showToast("Import erfolgreich: " + summary + ".", 3500);
-  };
-  reader.onerror = function () { showToast("Datei konnte nicht gelesen werden."); };
-  reader.readAsText(file);
-}
-
-exportDataBtn.onclick = exportData;
-importDataInput.onchange = function (e) {
-  const f = e.target.files && e.target.files[0];
-  if (f) importData(f);
-  e.target.value = "";
-};
 
 // Main sort handler
 mainSortEl.onchange = function () {
   state.mainSort = mainSortEl.value;
   localStorage.setItem("hl_main_sort", state.mainSort);
+  queuePushProfile();
   applyFilter();
 };
+
+// ===== Auth =====
+function setSyncStatus(state) {
+  const el = document.getElementById("sync-indicator");
+  if (!el) return;
+  el.classList.remove("syncing", "synced", "error");
+  if (state) el.classList.add(state);
+}
+
+async function initAuth() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session && session.user) {
+    currentUser = session.user;
+    await onLogin();
+  } else {
+    showLoginScreen();
+  }
+  sb.auth.onAuthStateChange(async function (event, session) {
+    if (event === "SIGNED_OUT" || !session) {
+      currentUser = null;
+      document.body.classList.remove("authenticated");
+      showLoginScreen();
+    } else if ((event === "SIGNED_IN" || event === "TOKEN_REFRESHED") && session.user && !currentUser) {
+      currentUser = session.user;
+      await onLogin();
+    }
+  });
+}
+
+function showLoginScreen() {
+  document.body.classList.remove("authenticated");
+  const err = document.getElementById("login-error");
+  if (err) err.textContent = "";
+}
+
+async function onLogin() {
+  document.body.classList.add("authenticated");
+  const sideUserInfo = document.getElementById("side-user-info");
+  if (sideUserInfo) {
+    sideUserInfo.innerHTML = "";
+    const span = document.createElement("span");
+    span.textContent = currentUser.email + " ";
+    const link = document.createElement("span");
+    link.className = "logout-link";
+    link.textContent = "(Abmelden)";
+    link.onclick = signOut;
+    sideUserInfo.appendChild(span);
+    sideUserInfo.appendChild(link);
+  }
+  setSyncStatus("syncing");
+  try {
+    await pullCloudData();
+    await maybeMigrate();
+    setSyncStatus("synced");
+    showToast("Eingeloggt als " + currentUser.email);
+  } catch (e) {
+    console.error("Login data pull failed:", e);
+    setSyncStatus("error");
+    showToast("Cloud-Fehler: " + e.message, 5000);
+  }
+  // Re-render with cloud data
+  buildRatingFilter();
+  applyFilter();
+  updatePlayer();
+  updateProgress();
+  updateAutoplayUI();
+  buildUserSentencesList();
+  updatePendingBadge();
+  if (mainSortEl) mainSortEl.value = state.mainSort;
+  if (usSortEl) usSortEl.value = state.usSort;
+}
+
+async function signOut() {
+  await sb.auth.signOut();
+  showToast("Abgemeldet.");
+}
+
+// Login form handler
+document.getElementById("login-form").addEventListener("submit", async function (e) {
+  e.preventDefault();
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  const errEl = document.getElementById("login-error");
+  const btn = document.getElementById("login-submit");
+  errEl.textContent = "";
+  btn.disabled = true;
+  btn.textContent = "Anmelden...";
+  try {
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    // onAuthStateChange handles the rest
+  } catch (err) {
+    errEl.textContent = "Login fehlgeschlagen: " + err.message;
+    btn.disabled = false;
+    btn.textContent = "Anmelden";
+  }
+});
+
+// ===== Cloud sync =====
+async function pullCloudData() {
+  if (!currentUser) return;
+  _suppressSync = true;
+  try {
+    // Profile (single row)
+    const { data: profile, error: pErr } = await sb
+      .from("profiles").select("*").eq("id", currentUser.id).maybeSingle();
+    if (pErr) throw pErr;
+    if (profile) {
+      state.ratings = profile.ratings || {};
+      state.mnemonics = profile.mnemonics || {};
+      state.shownMnemonics = new Set(profile.shown_mnemonics || []);
+      const s = profile.settings || {};
+      if (typeof s.autoplay === "boolean") state.autoPlay = s.autoplay;
+      if (s.main_sort) state.mainSort = s.main_sort;
+      if (s.us_sort) state.usSort = s.us_sort;
+      // Mirror to localStorage (cache for offline / next reload)
+      localStorage.setItem("hl_ratings", JSON.stringify(state.ratings));
+      localStorage.setItem("hl_mnemonics", JSON.stringify(state.mnemonics));
+      localStorage.setItem("hl_shown_mnemonics", JSON.stringify([...state.shownMnemonics]));
+      localStorage.setItem("hl_autoplay", JSON.stringify(state.autoPlay));
+      localStorage.setItem("hl_main_sort", state.mainSort);
+      localStorage.setItem("hl_us_sort", state.usSort);
+    }
+    // User sentences
+    const { data: sentences, error: sErr } = await sb
+      .from("user_sentences").select("*").eq("user_id", currentUser.id).order("id");
+    if (sErr) throw sErr;
+    state.userSentences = (sentences || []).map(function (r) {
+      return {
+        id: r.id, de: r.de, es: r.es || "",
+        cats: r.cats || [], pending: r.pending !== false,
+        archived: !!r.archived, audio_path: r.audio_path || "",
+        audio: "" // local field, not stored in cloud
+      };
+    });
+    localStorage.setItem("hl_user_sentences", JSON.stringify(state.userSentences));
+  } finally {
+    _suppressSync = false;
+  }
+}
+
+let pushProfileTimer = null;
+function queuePushProfile() {
+  if (!currentUser || _suppressSync) return;
+  if (pushProfileTimer) clearTimeout(pushProfileTimer);
+  setSyncStatus("syncing");
+  pushProfileTimer = setTimeout(pushProfile, 1500);
+}
+async function pushProfile() {
+  pushProfileTimer = null;
+  if (!currentUser) return;
+  try {
+    const { error } = await sb.from("profiles").upsert({
+      id: currentUser.id,
+      ratings: state.ratings,
+      mnemonics: state.mnemonics,
+      shown_mnemonics: [...state.shownMnemonics],
+      settings: {
+        autoplay: state.autoPlay,
+        main_sort: state.mainSort,
+        us_sort: state.usSort,
+      },
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw error;
+    setSyncStatus("synced");
+  } catch (e) {
+    console.error("pushProfile error:", e);
+    setSyncStatus("error");
+    showToast("Sync-Fehler (Profile): " + e.message, 4000);
+  }
+}
+
+let pushSentencesTimer = null;
+function queuePushSentences() {
+  if (!currentUser || _suppressSync) return;
+  if (pushSentencesTimer) clearTimeout(pushSentencesTimer);
+  setSyncStatus("syncing");
+  pushSentencesTimer = setTimeout(pushUserSentences, 1500);
+}
+async function pushUserSentences() {
+  pushSentencesTimer = null;
+  if (!currentUser) return;
+  try {
+    // Determine what's in cloud
+    const { data: cloud, error: cErr } = await sb
+      .from("user_sentences").select("id").eq("user_id", currentUser.id);
+    if (cErr) throw cErr;
+    const cloudIds = new Set((cloud || []).map(function (r) { return r.id; }));
+    const localIds = new Set(state.userSentences.map(function (s) { return s.id; }));
+    // Delete from cloud what no longer exists locally
+    const toDelete = [...cloudIds].filter(function (id) { return !localIds.has(id); });
+    if (toDelete.length) {
+      const { error: dErr } = await sb.from("user_sentences").delete()
+        .eq("user_id", currentUser.id).in("id", toDelete);
+      if (dErr) throw dErr;
+    }
+    // Upsert all local rows
+    if (state.userSentences.length) {
+      const rows = state.userSentences.map(function (s) {
+        return {
+          id: s.id, user_id: currentUser.id, de: s.de, es: s.es || "",
+          cats: s.cats || [], pending: s.pending !== false,
+          archived: !!s.archived, audio_path: s.audio_path || "",
+        };
+      });
+      const { error: uErr } = await sb.from("user_sentences").upsert(rows);
+      if (uErr) throw uErr;
+    }
+    setSyncStatus("synced");
+  } catch (e) {
+    console.error("pushUserSentences error:", e);
+    setSyncStatus("error");
+    showToast("Sync-Fehler (Sätze): " + e.message, 4000);
+  }
+}
+
+// One-time migration on first login if cloud is empty but local has data
+async function maybeMigrate() {
+  if (!currentUser) return;
+  const { data: profile } = await sb.from("profiles")
+    .select("ratings, mnemonics").eq("id", currentUser.id).maybeSingle();
+  const { count: sCount } = await sb.from("user_sentences")
+    .select("*", { count: "exact", head: true }).eq("user_id", currentUser.id);
+  const cloudHasData = (sCount && sCount > 0) || (profile && (
+    Object.keys(profile.ratings || {}).length > 0 ||
+    Object.keys(profile.mnemonics || {}).length > 0
+  ));
+  if (cloudHasData) return;
+  const lsRatings = JSON.parse(localStorage.getItem("hl_ratings") || "{}");
+  const lsMnemonics = JSON.parse(localStorage.getItem("hl_mnemonics") || "{}");
+  const lsSentences = JSON.parse(localStorage.getItem("hl_user_sentences") || "[]");
+  const hasLocal = lsSentences.length > 0 ||
+    Object.keys(lsRatings).length > 0 ||
+    Object.keys(lsMnemonics).length > 0;
+  if (!hasLocal) return;
+  const summary = lsSentences.length + " Sätze, " +
+    Object.keys(lsRatings).length + " Ratings, " +
+    Object.keys(lsMnemonics).length + " Mnemonics";
+  if (!confirm("Lokale Daten gefunden:\n" + summary + "\n\nIn die Cloud übertragen, damit alle Geräte synchron bleiben?")) return;
+  // Push: state already in memory from earlier init; ensure it matches localStorage
+  state.ratings = lsRatings;
+  state.mnemonics = lsMnemonics;
+  state.userSentences = lsSentences;
+  state.shownMnemonics = new Set(JSON.parse(localStorage.getItem("hl_shown_mnemonics") || "[]"));
+  // Force push
+  _suppressSync = false;
+  await pushProfile();
+  await pushUserSentences();
+  showToast("Migration abgeschlossen — " + summary, 3500);
+}
 
 // ===== Init =====
 buildCatFilter();
@@ -1361,3 +1557,6 @@ initAudioDB().then(function () {
   buildUserSentencesList();
   updateGenerateAllAudioBtn();
 });
+
+// Auth comes last so all DOM handlers are wired up first
+initAuth();

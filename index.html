@@ -7,6 +7,22 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- Login screen (visible when not authenticated) -->
+  <div class="login-screen" id="login-screen">
+    <div class="login-box">
+      <h1>Spanisch lernen</h1>
+      <p class="login-sub">Guatemala-Variante</p>
+      <form id="login-form" autocomplete="on">
+        <label class="login-label" for="login-email">E-Mail</label>
+        <input type="email" id="login-email" required autocomplete="username" />
+        <label class="login-label" for="login-password">Passwort</label>
+        <input type="password" id="login-password" required autocomplete="current-password" />
+        <button type="submit" id="login-submit">Anmelden</button>
+        <div class="login-error" id="login-error"></div>
+      </form>
+    </div>
+  </div>
+
   <div class="topbar">
     <button class="hamburger-btn" id="hamburger-btn" title="Menü">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
@@ -15,7 +31,7 @@
       <h1>ES Sätze</h1>
       <div class="subtitle">Spanisch (Guatemala) — Alltag</div>
     </div>
-    <div class="topbar-spacer"></div>
+    <div class="topbar-spacer" style="display:flex;align-items:center;justify-content:center;"><div class="sync-indicator" id="sync-indicator" title="Sync-Status"></div></div>
   </div>
 
   <div class="container">
@@ -75,7 +91,7 @@
   <div class="side-overlay" id="side-overlay"></div>
   <aside class="side-panel" id="side-panel">
     <div class="side-panel-header">
-      <h2>Menü</h2>
+      <div><h2 style="margin:0;">Menü</h2><div class="side-user-info" id="side-user-info"></div></div>
       <button class="icon-btn" id="close-side-panel" title="Schliessen">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
@@ -165,16 +181,6 @@
         </div>
       </details>
 
-      <details class="side-section" id="sync-section">
-        <summary><span class="side-sum-icon">⇅</span> Daten Backup / Sync</summary>
-        <div class="side-section-content">
-          <button class="side-btn" id="export-data-btn">Daten exportieren (.json)</button>
-          <label class="side-btn import-label" for="import-data-input">Daten importieren</label>
-          <input type="file" id="import-data-input" accept="application/json,.json" hidden />
-          <small class="side-tiny">Enthält: User-Sätze, Ratings, Mnemonics, Auto-Play. <strong>Kein API-Key</strong>. Für Handy-Sync: Export → in Cloud (iCloud/Drive) → Handy öffnen → Import.</small>
-        </div>
-      </details>
-
       <div class="side-section side-section-static">
         <div class="side-section-title">Kategorien</div>
         <div class="cat-filter" id="cat-filter"></div>
@@ -214,6 +220,7 @@
 
   <audio id="audio" preload="none"></audio>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="data.js"></script>
   <script src="app.js"></script>
 </body>

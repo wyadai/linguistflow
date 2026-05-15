@@ -296,3 +296,37 @@ body.recall .player-text-de { display: block; }
 .main-sort-label { font-size: 13px; }
 .main-sort-select { font-size: 13px; padding: 5px 8px; border: 1px solid var(--card-border); border-radius: 6px; background: white; cursor: pointer; color: var(--text-primary); }
 .main-sort-select:hover { background: #f9fafb; }
+
+/* ===== Login screen ===== */
+.login-screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--bg-gradient-start), var(--bg-gradient-end)); z-index: 1000; padding: 16px; }
+body.authenticated .login-screen { display: none; }
+.login-box { background: white; padding: 28px 24px; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.1); width: 100%; max-width: 360px; }
+.login-box h1 { font-size: 22px; font-weight: 600; margin: 0; text-align: center; }
+.login-box .login-sub { font-size: 13px; color: var(--text-secondary); text-align: center; margin: 4px 0 20px 0; }
+.login-box form { display: flex; flex-direction: column; gap: 8px; }
+.login-label { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+.login-box input { padding: 10px 12px; border: 1px solid var(--card-border); border-radius: 8px; font-size: 14px; font-family: inherit; background: white; }
+.login-box input:focus { outline: none; border-color: var(--accent); }
+.login-box button { margin-top: 12px; padding: 11px 16px; border-radius: 10px; border: none; background: var(--accent); color: white; font-size: 14px; font-weight: 500; cursor: pointer; }
+.login-box button:hover { background: var(--accent-hover); }
+.login-box button:disabled { opacity: 0.6; cursor: not-allowed; }
+.login-error { color: #dc2626; font-size: 13px; min-height: 18px; margin-top: 4px; text-align: center; }
+
+/* Hide app while not authenticated */
+body:not(.authenticated) .topbar,
+body:not(.authenticated) .container,
+body:not(.authenticated) .player,
+body:not(.authenticated) .side-panel,
+body:not(.authenticated) .side-overlay { display: none !important; }
+
+/* User info in sidebar */
+.side-user-info { font-size: 11px; color: var(--text-secondary); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+.side-user-info .logout-link { color: var(--accent); cursor: pointer; text-decoration: underline; }
+.side-user-info .logout-link:hover { color: var(--accent-hover); }
+
+/* Sync status indicator (small dot in topbar) */
+.sync-indicator { width: 8px; height: 8px; border-radius: 50%; background: var(--text-italic); margin-left: 6px; transition: background 0.3s; }
+.sync-indicator.syncing { background: var(--warning); animation: pulse 1s infinite; }
+.sync-indicator.synced { background: var(--learned); }
+.sync-indicator.error { background: #dc2626; }
+@keyframes pulse { 50% { opacity: 0.4; } }
