@@ -653,6 +653,22 @@ function applyFilter() {
     return true;
   }).map(function (s) { return s.id; });
 
+  // SAFETY NET: if no filters active but result is empty, something went wrong.
+  // Recover by showing all non-archived sentences and log diagnostics.
+  if (state.filteredIds.length === 0 && state.activeCats.size === 0 && state.activeRatings.size === 0 && !q) {
+    const allActive = allSentences().filter(function (s) { return !s.archived; });
+    if (allActive.length > 0) {
+      console.warn("[applyFilter] empty result with no active filters — falling back to all", {
+        totalSentences: allSentences().length,
+        archivedCount: allSentences().filter(function (s) { return s.archived; }).length,
+        userSentencesCount: state.userSentences.length,
+        currentUser: currentUser ? currentUser.email : null,
+        mode: state.mode,
+      });
+      state.filteredIds = allActive.map(function (s) { return s.id; });
+    }
+  }
+
   // Apply main sort
   if (state.mainSort === "newest") state.filteredIds.sort(function (a, b) { return b - a; });
   else if (state.mainSort === "oldest") state.filteredIds.sort(function (a, b) { return a - b; });
@@ -1005,8 +1021,14 @@ function updatePlayer() {
   highlightCurrent();
 }
 function selectCardOnly(id) {
-  const idx = state.filteredIds.indexOf(id);
-  if (idx === -1) return;
+  let idx = state.filteredIds.indexOf(id);
+  if (idx === -1) {
+    // Self-heal: card not in filteredIds → re-run applyFilter and try again
+    console.warn("[selectCardOnly] id " + id + " not in filteredIds (len=" + state.filteredIds.length + ") — re-running applyFilter");
+    applyFilter();
+    idx = state.filteredIds.indexOf(id);
+    if (idx === -1) return;
+  }
   state.currentIdx = idx;
   state.repeatCount = 0;
   updatePlayer();
