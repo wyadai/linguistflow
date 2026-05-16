@@ -196,6 +196,55 @@ hamburgerBtn.onclick = openSidePanel;
 sideOverlay.onclick = closeSidePanel;
 closeSidePanelBtn.onclick = closeSidePanel;
 
+// FAB: open the "Neuen Satz hinzufügen" section and focus the input.
+// On mobile this also slides the sidebar in (where the section lives).
+const fabAddBtn = document.getElementById("fab-add-sentence");
+if (fabAddBtn) {
+  fabAddBtn.onclick = function () {
+    const isDesktop = window.matchMedia("(min-width: 1024px)").matches;
+    if (!isDesktop) openSidePanel();
+    const sec = document.getElementById("new-sentence-section");
+    if (sec) sec.open = true;
+    // Defer focus to let the panel transition finish on mobile
+    setTimeout(function () {
+      if (newDeInput) {
+        newDeInput.focus();
+        try { sec.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
+      }
+    }, isDesktop ? 0 : 260);
+  };
+}
+
+// User avatar dropdown (topbar right)
+const userAvatarBtn = document.getElementById("user-avatar-btn");
+const userMenu = document.getElementById("user-menu");
+const userMenuLogout = document.getElementById("user-menu-logout");
+if (userAvatarBtn && userMenu) {
+  userAvatarBtn.onclick = function (e) {
+    e.stopPropagation();
+    userMenu.classList.toggle("open");
+  };
+  // Click outside closes the menu
+  document.addEventListener("click", function (e) {
+    if (!userMenu.classList.contains("open")) return;
+    if (!userMenu.contains(e.target) && !userAvatarBtn.contains(e.target)) {
+      userMenu.classList.remove("open");
+    }
+  });
+  // Escape closes the menu
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && userMenu.classList.contains("open")) {
+      userMenu.classList.remove("open");
+    }
+  });
+}
+if (userMenuLogout) {
+  userMenuLogout.onclick = function () {
+    if (userMenu) userMenu.classList.remove("open");
+    signOut();
+  };
+}
+
 // ===== API Key UI =====
 function updateApiKeyUI() {
   if (state.apiKey) {
@@ -1114,6 +1163,14 @@ function updateProgress() {
   const pct = total ? Math.round((learned / total) * 100) : 0;
   progressPercent.textContent = pct + "%";
   progressFill.style.width = pct + "%";
+
+  // Stat tiles (top of page). Streak is reserved for Phase 5 — placeholder for now.
+  const statMastered = document.getElementById("stat-mastered");
+  if (statMastered) statMastered.textContent = learned + " / " + total;
+  const statStreak = document.getElementById("stat-streak");
+  if (statStreak && statStreak.textContent.trim() === "— Tage") {
+    // Leave as-is — Phase 5 will populate from real data.
+  }
 }
 
 // ===== Controls =====
@@ -1356,6 +1413,14 @@ function showLoginScreen() {
 
 async function onLogin() {
   document.body.classList.add("authenticated");
+  // Topbar user menu: email + avatar initial
+  const emailText = document.getElementById("user-menu-email-text");
+  if (emailText && currentUser && currentUser.email) emailText.textContent = currentUser.email;
+  const avatarInitial = document.getElementById("user-avatar-initial");
+  if (avatarInitial && currentUser && currentUser.email) {
+    avatarInitial.textContent = currentUser.email.charAt(0).toUpperCase();
+  }
+  // Legacy: side-user-info kept hidden in DOM; populate for back-compat.
   const sideUserInfo = document.getElementById("side-user-info");
   if (sideUserInfo) {
     sideUserInfo.innerHTML = "";
@@ -1562,12 +1627,10 @@ async function maybeMigrate() {
     Object.keys(lsRatings).length + " Ratings, " +
     Object.keys(lsMnemonics).length + " Mnemonics";
   if (!confirm("Lokale Daten gefunden:\n" + summary + "\n\nIn die Cloud übertragen, damit alle Geräte synchron bleiben?")) return;
-  // Push: state already in memory from earlier init; ensure it matches localStorage
   state.ratings = lsRatings;
   state.mnemonics = lsMnemonics;
   state.userSentences = lsSentences;
   state.shownMnemonics = new Set(JSON.parse(localStorage.getItem("hl_shown_mnemonics") || "[]"));
-  // Force push
   _suppressSync = false;
   await pushProfile();
   await pushUserSentences();

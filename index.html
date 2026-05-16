@@ -3,15 +3,19 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Spanisch lernen — Guatemala</title>
+<title>LinguistFlow — Spanisch (Guatemala)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Login screen (visible when not authenticated) -->
+  <!-- ===== Login screen (visible when not authenticated) ===== -->
   <div class="login-screen" id="login-screen">
     <div class="login-box">
-      <h1>Spanisch lernen</h1>
-      <p class="login-sub">Guatemala-Variante</p>
+      <h1>LinguistFlow</h1>
+      <p class="login-sub">Language Mastery</p>
       <form id="login-form" autocomplete="on">
         <label class="login-label" for="login-email">E-Mail</label>
         <input type="email" id="login-email" required autocomplete="username" />
@@ -23,83 +27,25 @@
     </div>
   </div>
 
-  <div class="topbar">
-    <button class="hamburger-btn" id="hamburger-btn" title="Menü">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-    </button>
-    <div class="topbar-title">
-      <h1>ES Sätze</h1>
-      <div class="subtitle">Spanisch (Guatemala) — Alltag</div>
-    </div>
-    <div class="topbar-spacer" style="display:flex;align-items:center;justify-content:center;"><div class="sync-indicator" id="sync-indicator" title="Sync-Status"></div></div>
-  </div>
-
-  <div class="container">
-    <div class="progress-row">
-      <span id="progress-text">0 von 0 gemeistert</span>
-      <span id="progress-percent">0%</span>
-    </div>
-    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
-
-    <div class="mode-buttons">
-      <button class="mode-btn primary" id="listen-mode-btn">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-7h3z"/><path d="M3 19a2 2 0 0 0 2 2h1v-7H3z"/></svg>
-        Anhören &amp; Wiederholen
-      </button>
-      <button class="mode-btn secondary" id="recall-mode-btn">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-        Active Recall
-      </button>
-    </div>
-    <div class="hint" id="mode-hint">Spanisch zuerst lesen/hören, Deutsch als Hilfe darunter.</div>
-
-    <div class="rating-filter" id="rating-filter"></div>
-
-    <div class="toolbar">
-      <div class="toolbar-left">
-        <div class="toggle-wrap">
-          <span>Übersetzung</span>
-          <div class="toggle on" id="translate-toggle"></div>
-        </div>
-        <div class="toggle-wrap" id="autoplay-wrap">
-          <span>Auto-Play</span>
-          <div class="toggle on" id="autoplay-toggle"></div>
-        </div>
-        <div class="main-sort-wrap">
-          <span class="main-sort-label">Reihenfolge</span>
-          <select id="main-sort" class="main-sort-select">
-            <option value="oldest">Älteste zuerst</option>
-            <option value="newest">Neueste zuerst</option>
-            <option value="random">Zufällig</option>
-          </select>
-        </div>
-      </div>
-      <div class="toolbar-right">
-        <button class="icon-btn" id="search-btn" title="Suchen">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-        </button>
-      </div>
-    </div>
-
-    <input type="search" class="search-bar" id="search-input" name="sentence-search-q" autocomplete="off" data-form-type="other" data-lpignore="true" placeholder="Suchen (deutsch oder spanisch)..." />
-
-    <div id="cards"></div>
-    <div class="no-results" id="no-results" style="display:none;">Keine Sätze in dieser Auswahl.</div>
-  </div>
-
-  <!-- Side panel -->
+  <!-- ===== Sidebar (always visible on desktop, drawer on mobile) ===== -->
   <div class="side-overlay" id="side-overlay"></div>
   <aside class="side-panel" id="side-panel">
     <div class="side-panel-header">
-      <div><h2 style="margin:0;">Menü</h2><div class="side-user-info" id="side-user-info"></div></div>
+      <div>
+        <h2>LinguistFlow</h2>
+        <div class="side-tagline">Language Mastery</div>
+      </div>
       <button class="icon-btn" id="close-side-panel" title="Schliessen">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <span class="material-symbols-outlined" style="font-size:18px;">close</span>
       </button>
     </div>
     <div class="side-panel-body">
 
       <details class="side-section" id="new-sentence-section">
-        <summary><span class="side-sum-icon">+</span> Neuen Satz hinzufügen</summary>
+        <summary>
+          <span class="side-sum-icon material-symbols-outlined">add_circle</span>
+          Neuen Satz hinzufügen
+        </summary>
         <div class="side-section-content">
           <textarea id="new-de-input" placeholder="Deutscher Satz..." rows="2"></textarea>
           <div class="side-label">Kategorien (optional)</div>
@@ -109,11 +55,15 @@
       </details>
 
       <details class="side-section" id="translation-section">
-        <summary><span class="side-sum-icon">⇄</span> Übersetzungen <span id="pending-count" class="side-badge"></span></summary>
+        <summary>
+          <span class="side-sum-icon material-symbols-outlined">translate</span>
+          Übersetzungen
+          <span id="pending-count" class="side-badge"></span>
+        </summary>
         <div class="side-section-content">
           <div class="api-block">
             <div class="side-label">Anthropic API Key <span id="api-key-status" class="api-status"></span></div>
-            <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="new-password" data-form-type="other" data-lpignore="true" />
+            <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" />
             <div class="api-actions">
               <button class="side-btn" id="save-api-key-btn">Speichern</button>
               <button class="side-btn" id="clear-api-key-btn">Löschen</button>
@@ -142,13 +92,16 @@
       </details>
 
       <details class="side-section" id="audio-section">
-        <summary><span class="side-sum-icon">🔊</span> Audio (ElevenLabs)</summary>
+        <summary>
+          <span class="side-sum-icon material-symbols-outlined">volume_up</span>
+          Audio (ElevenLabs)
+        </summary>
         <div class="side-section-content">
           <div class="api-block">
             <div class="side-label">ElevenLabs API Key <span id="el-key-status" class="api-status"></span></div>
-            <input type="password" id="el-key-input" placeholder="sk_..." autocomplete="new-password" data-form-type="other" data-lpignore="true" />
+            <input type="password" id="el-key-input" placeholder="sk_..." autocomplete="off" />
             <div class="side-label" style="margin-top:6px;">Voice ID</div>
-            <input type="text" id="el-voice-input" placeholder="z.B. 21m00Tcm4TlvDq8ikWAM (Rachel)" autocomplete="off" data-form-type="other" data-lpignore="true" />
+            <input type="text" id="el-voice-input" placeholder="z.B. 21m00Tcm4TlvDq8ikWAM (Rachel)" autocomplete="off" />
             <div class="api-actions">
               <button class="side-btn" id="save-el-btn">Speichern</button>
               <button class="side-btn" id="clear-el-btn">Löschen</button>
@@ -164,7 +117,11 @@
       </details>
 
       <details class="side-section" id="my-sentences-section">
-        <summary><span class="side-sum-icon">📋</span> Meine Sätze <span id="my-sentences-count" class="side-badge"></span></summary>
+        <summary>
+          <span class="side-sum-icon material-symbols-outlined">edit_note</span>
+          Meine Sätze
+          <span id="my-sentences-count" class="side-badge"></span>
+        </summary>
         <div class="side-section-content">
           <div class="us-toolbar">
             <div class="us-tabs">
@@ -189,9 +146,132 @@
     </div>
   </aside>
 
+  <!-- ===== Main app (offset by sidebar on desktop) ===== -->
+  <div class="app-main">
+
+    <!-- Topbar with permanent search + sync indicator -->
+    <header class="topbar">
+      <button class="hamburger-btn" id="hamburger-btn" title="Menü">
+        <span class="material-symbols-outlined" style="font-size:22px;">menu</span>
+      </button>
+      <!-- Old topbar title kept in DOM (hidden via CSS) for any legacy JS references -->
+      <div class="topbar-title">
+        <h1>LinguistFlow</h1>
+        <div class="subtitle">Language Mastery</div>
+      </div>
+      <div class="topbar-search">
+        <span class="material-symbols-outlined search-icon">search</span>
+        <input type="text" class="search-bar" id="search-input" placeholder="Suchen — deutsch oder spanisch..." autocomplete="off" />
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="search-btn" title="Suchen" style="display:none;"></button>
+        <div class="course-chip" title="Aktueller Kurs">
+          <span class="material-symbols-outlined" style="font-size:16px;">language</span>
+          <span class="course-chip-label">Spanisch (Guatemala)</span>
+        </div>
+        <div class="sync-indicator" id="sync-indicator" title="Sync-Status"></div>
+        <div class="user-menu-wrap">
+          <button class="user-avatar-btn" id="user-avatar-btn" title="Account">
+            <span id="user-avatar-initial">M</span>
+          </button>
+          <div class="user-menu" id="user-menu">
+            <div class="user-menu-email">
+              <span class="user-menu-label">Angemeldet als</span>
+              <span id="user-menu-email-text">—</span>
+            </div>
+            <button class="user-menu-btn logout" id="user-menu-logout">
+              <span class="material-symbols-outlined" style="font-size:18px;">logout</span>
+              Abmelden
+            </button>
+          </div>
+        </div>
+      </div>
+      <!-- side-user-info kept for legacy JS compat (hidden via CSS) -->
+      <div id="side-user-info" style="display:none;"></div>
+    </header>
+
+    <main class="container">
+
+      <!-- Stats cards -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-icon streak">
+            <span class="material-symbols-outlined fill" style="font-size:22px;">bolt</span>
+          </div>
+          <div>
+            <div class="stat-meta">Streak</div>
+            <div class="stat-value" id="stat-streak">— Tage</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon mastered">
+            <span class="material-symbols-outlined fill" style="font-size:22px;">check_circle</span>
+          </div>
+          <div>
+            <div class="stat-meta">Gemeistert</div>
+            <div class="stat-value" id="stat-mastered">0 / 0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-row">
+        <span id="progress-text">0 von 0 gemeistert</span>
+        <span id="progress-percent">0%</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+
+      <!-- Mode toggle -->
+      <div class="mode-buttons">
+        <button class="mode-btn primary" id="listen-mode-btn">
+          <span class="material-symbols-outlined fill" style="font-size:18px;">headphones</span>
+          <span class="label-full">Anhören &amp; Wiederholen</span>
+        </button>
+        <button class="mode-btn secondary" id="recall-mode-btn">
+          <span class="material-symbols-outlined" style="font-size:18px;">visibility_off</span>
+          <span class="label-full">Active Recall</span>
+        </button>
+      </div>
+      <div class="hint" id="mode-hint">Spanisch zuerst lesen/hören, Deutsch als Hilfe darunter.</div>
+
+      <!-- Rating filter (JS renders chips into this) -->
+      <div class="rating-filter" id="rating-filter"></div>
+
+      <!-- Toolbar with toggles + sort -->
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="toggle-wrap">
+            <span>Übersetzung</span>
+            <div class="toggle on" id="translate-toggle"></div>
+          </div>
+          <div class="toggle-wrap" id="autoplay-wrap">
+            <span>Auto-Play</span>
+            <div class="toggle on" id="autoplay-toggle"></div>
+          </div>
+        </div>
+        <div class="toolbar-right">
+          <div class="main-sort-wrap">
+            <span class="main-sort-label">Sortieren</span>
+            <select id="main-sort" class="main-sort-select">
+              <option value="oldest">Älteste zuerst</option>
+              <option value="newest">Neueste zuerst</option>
+              <option value="random">Zufällig</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cards -->
+      <div id="cards"></div>
+      <div class="no-results" id="no-results" style="display:none;">Keine Sätze in dieser Auswahl.</div>
+
+    </main>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
+  <!-- Bottom Player -->
   <div class="player">
     <div class="player-inner">
       <div class="player-info">
@@ -201,14 +281,14 @@
       </div>
       <div class="player-controls">
         <button class="ctrl-btn" id="prev-btn" title="Vorheriger">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12l8.5 6V6z"/></svg>
+          <span class="material-symbols-outlined fill" style="font-size:24px;">skip_previous</span>
         </button>
         <button class="ctrl-btn main" id="play-btn" title="Abspielen / Aufdecken">
-          <svg id="play-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          <svg id="pause-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+          <span class="material-symbols-outlined fill" id="play-icon" style="font-size:24px;">play_arrow</span>
+          <span class="material-symbols-outlined fill" id="pause-icon" style="font-size:24px;display:none;">pause</span>
         </button>
         <button class="ctrl-btn" id="next-btn" title="Nächster">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+          <span class="material-symbols-outlined fill" style="font-size:24px;">skip_next</span>
         </button>
       </div>
       <div class="player-extras">
@@ -217,6 +297,12 @@
       </div>
     </div>
   </div>
+
+  <!-- FAB: Neuer Satz -->
+  <button class="fab" id="fab-add-sentence" title="Neuen Satz hinzufügen">
+    <span class="material-symbols-outlined" style="font-size:22px;">add</span>
+    <span class="fab-label">Neuer Satz</span>
+  </button>
 
   <audio id="audio" preload="none"></audio>
 
