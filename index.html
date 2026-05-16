@@ -81,7 +81,7 @@
       </div>
     </div>
 
-    <input type="text" class="search-bar" id="search-input" placeholder="Suchen (deutsch oder spanisch)..." />
+    <input type="search" class="search-bar" id="search-input" name="sentence-search-q" autocomplete="off" data-form-type="other" data-lpignore="true" placeholder="Suchen (deutsch oder spanisch)..." />
 
     <div id="cards"></div>
     <div class="no-results" id="no-results" style="display:none;">Keine Sätze in dieser Auswahl.</div>
@@ -113,7 +113,7 @@
         <div class="side-section-content">
           <div class="api-block">
             <div class="side-label">Anthropic API Key <span id="api-key-status" class="api-status"></span></div>
-            <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" />
+            <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="new-password" data-form-type="other" data-lpignore="true" />
             <div class="api-actions">
               <button class="side-btn" id="save-api-key-btn">Speichern</button>
               <button class="side-btn" id="clear-api-key-btn">Löschen</button>
@@ -146,9 +146,9 @@
         <div class="side-section-content">
           <div class="api-block">
             <div class="side-label">ElevenLabs API Key <span id="el-key-status" class="api-status"></span></div>
-            <input type="password" id="el-key-input" placeholder="sk_..." autocomplete="off" />
+            <input type="password" id="el-key-input" placeholder="sk_..." autocomplete="new-password" data-form-type="other" data-lpignore="true" />
             <div class="side-label" style="margin-top:6px;">Voice ID</div>
-            <input type="text" id="el-voice-input" placeholder="z.B. 21m00Tcm4TlvDq8ikWAM (Rachel)" autocomplete="off" />
+            <input type="text" id="el-voice-input" placeholder="z.B. 21m00Tcm4TlvDq8ikWAM (Rachel)" autocomplete="off" data-form-type="other" data-lpignore="true" />
             <div class="api-actions">
               <button class="side-btn" id="save-el-btn">Speichern</button>
               <button class="side-btn" id="clear-el-btn">Löschen</button>

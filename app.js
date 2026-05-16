@@ -1154,7 +1154,18 @@ searchBtn.onclick = function () {
   searchInput.classList.toggle("visible");
   if (searchInput.classList.contains("visible")) searchInput.focus();
 };
-searchInput.oninput = function (e) { state.search = e.target.value; applyFilter(); };
+searchInput.oninput = function (e) {
+  const v = e.target.value;
+  // Defeat browser autofill: ignore values that look like an email (typical autofill bait)
+  if (v && v.includes("@") && v.includes(".") && !/\s/.test(v)) {
+    console.warn("[search] Ignoring email-like autofill value:", v);
+    e.target.value = "";
+    state.search = "";
+    return;
+  }
+  state.search = v;
+  applyFilter();
+};
 speedBtn.onclick = function () {
   const i = state.speeds.indexOf(state.speed);
   state.speed = state.speeds[(i + 1) % state.speeds.length];
@@ -1378,6 +1389,9 @@ async function onLogin() {
   updatePendingBadge();
   if (mainSortEl) mainSortEl.value = state.mainSort;
   if (usSortEl) usSortEl.value = state.usSort;
+  // Defeat any browser autofill that may have polluted the search box
+  state.search = "";
+  if (searchInput) searchInput.value = "";
 }
 
 async function signOut() {
