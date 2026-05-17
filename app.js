@@ -143,9 +143,26 @@ const hamburgerBtn = document.getElementById("hamburger-btn");
 const sidePanel = document.getElementById("side-panel");
 const sideOverlay = document.getElementById("side-overlay");
 const closeSidePanelBtn = document.getElementById("close-side-panel");
-const newDeInput = document.getElementById("new-de-input");
-const newCatPickerEl = document.getElementById("new-cat-picker");
-const addSentenceBtn = document.getElementById("add-sentence-btn");
+// ----- Neuer-Satz Seite -----
+const nsPageEl = document.getElementById("new-sentence-page");
+const nsBackBtn = document.getElementById("ns-back-btn");
+const nsTabsEl = document.getElementById("ns-tabs");
+const nsDeInput = document.getElementById("ns-de-input");
+const nsEsInput = document.getElementById("ns-es-input");
+const nsMnemonicInput = document.getElementById("ns-mnemonic-input");
+const nsMultiInput = document.getElementById("ns-multi-input");
+const nsMultiCountEl = document.getElementById("ns-multi-count");
+const nsCatPickerEl = document.getElementById("ns-cat-picker");
+const nsCatPickerMultiEl = document.getElementById("ns-cat-picker-multi");
+const nsAddBtn = document.getElementById("ns-add-btn");
+const nsAddBtnLabel = document.getElementById("ns-add-btn-label");
+const nsAddContinueBtn = document.getElementById("ns-add-continue-btn");
+const nsAdvancedEl = document.getElementById("ns-advanced-single");
+const nsRecentListEl = document.getElementById("ns-recent-list");
+const nsRecentAllBtn = document.getElementById("ns-recent-all");
+const nsHintEl = document.getElementById("ns-hint");
+const sideNewSentenceLink = document.getElementById("side-new-sentence-link");
+state.nsTab = "single"; // "single" | "multi" | "claude"
 const copyPromptBtn = document.getElementById("copy-prompt-btn");
 const pasteTranslationsEl = document.getElementById("paste-translations");
 const applyTranslationsBtn = document.getElementById("apply-translations-btn");
@@ -196,23 +213,50 @@ hamburgerBtn.onclick = openSidePanel;
 sideOverlay.onclick = closeSidePanel;
 closeSidePanelBtn.onclick = closeSidePanel;
 
-// FAB: open the "Neuen Satz hinzufügen" section and focus the input.
-// On mobile this also slides the sidebar in (where the section lives).
+// FAB & sidebar entry: navigate to the dedicated "Neuer Satz" page.
 const fabAddBtn = document.getElementById("fab-add-sentence");
-if (fabAddBtn) {
-  fabAddBtn.onclick = function () {
-    const isDesktop = window.matchMedia("(min-width: 1024px)").matches;
-    if (!isDesktop) openSidePanel();
-    const sec = document.getElementById("new-sentence-section");
-    if (sec) sec.open = true;
-    // Defer focus to let the panel transition finish on mobile
-    setTimeout(function () {
-      if (newDeInput) {
-        newDeInput.focus();
-        try { sec.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
-      }
-    }, isDesktop ? 0 : 260);
-  };
+if (fabAddBtn) fabAddBtn.onclick = function () { openNewSentencePage(); };
+if (sideNewSentenceLink) sideNewSentenceLink.onclick = function () {
+  closeSidePanel();
+  openNewSentencePage();
+};
+if (nsBackBtn) nsBackBtn.onclick = function () { closeNewSentencePage(); };
+
+// Remembered mode so we can restore it when the user navigates back.
+let _modeBeforeNewSentence = null;
+
+function openNewSentencePage() {
+  // Remember current mode to restore on close
+  _modeBeforeNewSentence = document.body.classList.contains("focus")
+    ? "focus"
+    : (document.body.classList.contains("recall") ? "recall" : "listen");
+  // Make sure focus/recall body classes don't bleed into the page styles
+  document.body.classList.remove("focus");
+  document.body.classList.remove("recall");
+  document.body.classList.add("new-sentence");
+  if (sideNewSentenceLink) sideNewSentenceLink.classList.add("active");
+  buildNsCatPickers();
+  renderNsRecent();
+  updateNsMultiCount();
+  // Default to single tab when reopening
+  setNsTab("single");
+  // Focus the right input shortly after layout/transition
+  setTimeout(function () {
+    if (state.nsTab === "single" && nsDeInput) nsDeInput.focus();
+  }, 60);
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+function closeNewSentencePage() {
+  document.body.classList.remove("new-sentence");
+  if (sideNewSentenceLink) sideNewSentenceLink.classList.remove("active");
+  // Restore the prior mode
+  if (_modeBeforeNewSentence === "focus" && typeof setFocusModeActive === "function") {
+    setFocusModeActive();
+  } else if (_modeBeforeNewSentence === "recall") {
+    document.body.classList.add("recall");
+  }
+  _modeBeforeNewSentence = null;
 }
 
 // User avatar dropdown (topbar right)
@@ -506,38 +550,256 @@ function buildCatFilter() {
   }
 }
 
-function buildNewCatPicker() {
-  newCatPickerEl.innerHTML = "";
+// Material Symbols icon for each category key.
+const NS_CAT_ICONS = {
+  Arbeit:                  "work",
+  Familie_Freunde:         "group",
+  Gesundheit_Koerper:      "ecg_heart",
+  Hobby_Freizeit:          "sports_esports",
+  Kueche_Essen:            "restaurant",
+  Reisen_Verkehr:          "directions_car",
+  Smalltalk_Hoeflichkeit:  "chat_bubble",
+  Wetter_Natur:            "cloud",
+  Wohnen_Haushalt:         "home",
+};
+
+function buildNsCatPickers() {
+  buildNsCatPicker(nsCatPickerEl);
+  buildNsCatPicker(nsCatPickerMultiEl);
+}
+function buildNsCatPicker(containerEl) {
+  if (!containerEl) return;
+  containerEl.innerHTML = "";
   for (const cat of DATA.categories) {
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.className = "new-cat-chip" + (state.newSentenceCats.has(cat.key) ? " active" : "");
-    chip.textContent = cat.label;
+    chip.className = "ns-cat-chip" + (state.newSentenceCats.has(cat.key) ? " active" : "");
+    const iconName = NS_CAT_ICONS[cat.key] || "label";
+    chip.innerHTML =
+      '<span class="material-symbols-outlined ns-cat-icon">' + iconName + '</span>' +
+      '<span>' + cat.label + '</span>';
     chip.onclick = function () {
       if (state.newSentenceCats.has(cat.key)) state.newSentenceCats.delete(cat.key);
       else state.newSentenceCats.add(cat.key);
-      buildNewCatPicker();
+      buildNsCatPickers();
     };
-    newCatPickerEl.appendChild(chip);
+    containerEl.appendChild(chip);
   }
 }
 
-addSentenceBtn.onclick = function () {
-  const de = newDeInput.value.trim();
-  if (!de) { showToast("Bitte einen deutschen Satz eingeben."); return; }
-  const id = nextUserId();
-  state.userSentences.push({
-    id: id, de: de, es: "", cats: [...state.newSentenceCats], audio: "", pending: true,
+// Tab switching
+function setNsTab(tab) {
+  state.nsTab = tab;
+  nsTabsEl.querySelectorAll(".ns-tab").forEach(function (btn) {
+    btn.classList.toggle("active", btn.dataset.nsTab === tab);
   });
+  document.querySelectorAll(".ns-tab-content").forEach(function (el) {
+    el.style.display = el.dataset.nsContent === tab ? "" : "none";
+  });
+  // Adjust the action row for the current tab
+  if (tab === "claude") {
+    nsAddBtn.disabled = true;
+    nsAddContinueBtn.disabled = true;
+    nsAddBtnLabel.textContent = "Bald verfügbar";
+    nsHintEl.textContent = "Dieser Modus ist noch nicht aktiv.";
+  } else if (tab === "multi") {
+    nsAddBtn.disabled = false;
+    nsAddContinueBtn.disabled = true; // continue makes no sense after bulk
+    nsAddBtnLabel.textContent = "Alle hinzufügen";
+    nsHintEl.textContent = "Übersetzungen laufen im Hintergrund";
+  } else {
+    nsAddBtn.disabled = false;
+    nsAddContinueBtn.disabled = false;
+    nsAddBtnLabel.textContent = "Hinzufügen";
+    nsHintEl.textContent = "Übersetzung läuft im Hintergrund";
+  }
+}
+if (nsTabsEl) {
+  nsTabsEl.querySelectorAll(".ns-tab").forEach(function (btn) {
+    btn.onclick = function () {
+      if (btn.classList.contains("disabled") || btn.disabled) return;
+      setNsTab(btn.dataset.nsTab);
+    };
+  });
+}
+
+// Multi-mode: live count of parsed sentences
+function parseMultiLines() {
+  if (!nsMultiInput) return [];
+  return nsMultiInput.value.split("\n")
+    .map(function (s) { return s.trim(); })
+    .filter(function (s) { return s.length > 0; });
+}
+function updateNsMultiCount() {
+  if (!nsMultiCountEl || !nsMultiInput) return;
+  const n = parseMultiLines().length;
+  nsMultiCountEl.textContent = n === 1 ? "1 Satz erkannt" : (n + " Sätze erkannt");
+}
+if (nsMultiInput) nsMultiInput.addEventListener("input", updateNsMultiCount);
+
+// Core: add one user sentence and persist + sync.
+// Returns the new id, or null if validation failed.
+function addUserSentence(opts) {
+  const de = (opts.de || "").trim();
+  if (!de) return null;
+  const id = nextUserId();
+  const es = (opts.es || "").trim();
+  state.userSentences.push({
+    id: id,
+    de: de,
+    es: es,
+    cats: opts.cats ? [...opts.cats] : [],
+    audio: "",
+    pending: es ? false : true,
+  });
+  if (opts.mnemonic && opts.mnemonic.trim()) {
+    state.mnemonics[id] = opts.mnemonic.trim();
+    saveJSON("hl_mnemonics", state.mnemonics);
+  }
   saveJSON("hl_user_sentences", state.userSentences);
-  newDeInput.value = "";
+  return id;
+}
+
+function clearNsForm() {
+  if (nsDeInput) nsDeInput.value = "";
+  if (nsEsInput) nsEsInput.value = "";
+  if (nsMnemonicInput) nsMnemonicInput.value = "";
   state.newSentenceCats.clear();
-  buildNewCatPicker();
+  if (nsAdvancedEl) nsAdvancedEl.open = false;
+  buildNsCatPickers();
+}
+
+function submitNsForm(continueMode) {
+  if (state.nsTab === "claude") return;
+
+  if (state.nsTab === "multi") {
+    const lines = parseMultiLines();
+    if (lines.length === 0) {
+      showToast("Bitte mindestens einen Satz eingeben.");
+      return;
+    }
+    const ids = [];
+    for (const line of lines) {
+      const id = addUserSentence({ de: line, cats: state.newSentenceCats });
+      if (id) ids.push(id);
+    }
+    if (nsMultiInput) nsMultiInput.value = "";
+    state.newSentenceCats.clear();
+    buildNsCatPickers();
+    updateNsMultiCount();
+    applyFilter();
+    updatePendingBadge();
+    updateProgress();
+    buildUserSentencesList();
+    renderNsRecent();
+    showToast(ids.length + " Sätze hinzugefügt (#" + ids[0] + "–#" + ids[ids.length - 1] + ").");
+    closeNewSentencePage();
+    return;
+  }
+
+  // Single mode
+  const de = nsDeInput ? nsDeInput.value.trim() : "";
+  if (!de) {
+    showToast("Bitte einen deutschen Satz eingeben.");
+    if (nsDeInput) nsDeInput.focus();
+    return;
+  }
+  const es = nsEsInput ? nsEsInput.value : "";
+  const mnemonic = nsMnemonicInput ? nsMnemonicInput.value : "";
+  const id = addUserSentence({
+    de: de,
+    es: es,
+    cats: state.newSentenceCats,
+    mnemonic: mnemonic,
+  });
+
   applyFilter();
   updatePendingBadge();
   updateProgress();
   buildUserSentencesList();
+  renderNsRecent();
   showToast("Satz #" + id + " hinzugefügt.");
+
+  if (continueMode) {
+    clearNsForm();
+    if (nsDeInput) nsDeInput.focus();
+  } else {
+    clearNsForm();
+    closeNewSentencePage();
+  }
+}
+
+if (nsAddBtn) nsAddBtn.onclick = function () { submitNsForm(false); };
+if (nsAddContinueBtn) nsAddContinueBtn.onclick = function () { submitNsForm(true); };
+
+// Cmd/Ctrl+Enter to submit (and Shift+Enter on the DE input keeps you in the form).
+function handleNsKeydown(e) {
+  if (!document.body.classList.contains("new-sentence")) return;
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    e.preventDefault();
+    submitNsForm(e.shiftKey);
+  } else if (e.key === "Escape") {
+    if (state.nsTab !== "single" && state.nsTab !== "multi") return;
+    e.preventDefault();
+    closeNewSentencePage();
+  }
+}
+document.addEventListener("keydown", handleNsKeydown);
+
+// Recent additions list
+function renderNsRecent() {
+  if (!nsRecentListEl) return;
+  // Last 5 non-archived user sentences, newest first
+  const recent = state.userSentences
+    .filter(function (s) { return !s.archived; })
+    .slice()
+    .sort(function (a, b) { return b.id - a.id; })
+    .slice(0, 5);
+
+  nsRecentListEl.innerHTML = "";
+  if (recent.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "ns-recent-empty";
+    empty.textContent = "Noch keine eigenen Sätze. Schreib oben deinen ersten.";
+    nsRecentListEl.appendChild(empty);
+    return;
+  }
+  for (const s of recent) {
+    const row = document.createElement("div");
+    row.className = "ns-recent-row";
+    const esEl = s.es
+      ? '<div class="ns-recent-es">' + escapeHtml(s.es) + '</div>'
+      : '<div class="ns-recent-es-placeholder">— Übersetzung ausstehend —</div>';
+    const statusCls = s.pending ? "pending" : "ready";
+    const statusTxt = s.pending ? "Pending" : "Fertig";
+    row.innerHTML =
+      '<span class="ns-recent-id">#' + s.id + '</span>' +
+      '<span class="ns-recent-status ' + statusCls + '">' + statusTxt + '</span>' +
+      '<div class="ns-recent-text">' +
+        esEl +
+        '<div class="ns-recent-de">' + escapeHtml(s.de) + '</div>' +
+      '</div>' +
+      '<span class="material-symbols-outlined ns-recent-icon">volume_up</span>';
+    nsRecentListEl.appendChild(row);
+  }
+}
+
+// Tiny HTML escape helper for recent rows
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+
+// "Alle ansehen" → close the page and open "Meine Sätze" in the sidebar
+if (nsRecentAllBtn) nsRecentAllBtn.onclick = function () {
+  closeNewSentencePage();
+  openSidePanel();
+  const sec = document.getElementById("my-sentences-section");
+  if (sec) {
+    sec.open = true;
+    setTimeout(function () { try { sec.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 60);
+  }
 };
 
 copyPromptBtn.onclick = function () {
@@ -985,6 +1247,13 @@ function buildMnemonicEditor(id, cardEl) {
   const actions = document.createElement("div");
   actions.className = "mnemonic-panel-actions";
 
+  const genBtn = document.createElement("button");
+  genBtn.className = "mnemonic-btn-small mnemonic-generate-btn";
+  genBtn.title = "Eselsbrücke mit Claude generieren";
+  genBtn.innerHTML = '<span class="gen-icon">✨</span><span>Vorschlag</span>';
+  genBtn.onclick = function (e) { e.stopPropagation(); generateMnemonicViaAPI(id, ta, genBtn); };
+  actions.appendChild(genBtn);
+
   if (existing) {
     const delBtn = document.createElement("button");
     delBtn.className = "mnemonic-btn-small";
@@ -1042,6 +1311,69 @@ function deleteMnemonic(id, cardEl) {
   saveShownMnemonics();
   updateMnemonicPanel(id, cardEl);
   showToast("Eselsbrücke gelöscht.");
+}
+
+// ===== Mnemonic generation via Anthropic API =====
+async function generateMnemonicViaAPI(id, ta, btn) {
+  if (!state.apiKey) {
+    showToast("Bitte Anthropic API Key im Seitenmenü eingeben.", 4000);
+    return;
+  }
+  const s = getSentenceById(id);
+  if (!s) return;
+  if (!s.es) { showToast("Satz hat noch keine Übersetzung."); return; }
+
+  const originalHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.classList.add("loading");
+  btn.innerHTML = '<span class="gen-icon">✨</span><span>Generiere…</span>';
+
+  const systemPrompt =
+    "Du erstellst kurze, einprägsame Eselsbrücken auf Deutsch für spanische Vokabeln (Guatemala-Spanisch).\n" +
+    "Wähle EIN Wort aus dem spanischen Satz, das vermutlich am schwersten zu merken ist (klanglich ungewohnt, selten oder nicht aus dem Lateinischen ableitbar). Vermeide triviale Wörter wie está, en, los, se, le, un, poco, siempre, todavía, ¿puedes…?\n" +
+    "Mach dafür eine prägnante Eselsbrücke auf Deutsch. Nutze Klangähnlichkeiten zum Deutschen oder einem bekannten Wort, kombiniert mit einem lebendigen, leicht absurden Bild — das bleibt am besten hängen.\n" +
+    "Antworte AUSSCHLIESSLICH mit der Eselsbrücke selbst — kurz (1–3 Sätze), ohne Einleitung, ohne Anführungszeichen, ohne Markdown-Formatierung (KEINE Sternchen).\n" +
+    "Format: wort (deutsche Bedeutung) — kurze Eselsbrücke.";
+
+  const userPrompt = "DE: " + s.de + "\nES: " + s.es;
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": state.apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 400,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
+    if (!response.ok) {
+      let errMsg = "API Fehler: " + response.status;
+      try { const ej = await response.json(); if (ej.error && ej.error.message) errMsg += " — " + ej.error.message; } catch (e) {}
+      showToast(errMsg, 5000);
+      return;
+    }
+    const data = await response.json();
+    const text = ((data.content && data.content[0] && data.content[0].text) || "").trim();
+    if (!text) { showToast("Leere Antwort von der API."); return; }
+    ta.value = text;
+    ta.focus();
+    // Move cursor to end so user sees the full suggestion
+    try { ta.setSelectionRange(text.length, text.length); } catch (e) {}
+  } catch (e) {
+    showToast("Netzwerkfehler: " + e.message, 5000);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("loading");
+    btn.innerHTML = originalHTML;
+  }
 }
 
 // ===== Selection / playback =====
@@ -1639,7 +1971,9 @@ async function maybeMigrate() {
 
 // ===== Init =====
 buildCatFilter();
-buildNewCatPicker();
+buildNsCatPickers();
+renderNsRecent();
+updateNsMultiCount();
 buildRatingFilter();
 usSortEl.value = state.usSort;
 mainSortEl.value = state.mainSort;
@@ -1656,6 +1990,486 @@ initAudioDB().then(function () {
   buildUserSentencesList();
   updateGenerateAllAudioBtn();
 });
+
+// =====================================================================
+// FOKUS-SESSION (third mode: Anki-style single card practice)
+// =====================================================================
+
+// Local state (not persisted — sessions are ephemeral)
+const focus = {
+  // Setup config
+  cats: new Set(),           // empty = all
+  ratings: new Set(["unrated", "1", "2"]),  // default: practice the unmastered cards
+  count: 20,                 // 10 / 20 / 50 / "all"
+  order: "random",           // "random" | "hardest" | "oldest"
+  // Session
+  active: false,
+  queue: [],                 // array of sentence IDs
+  idx: 0,
+  revealed: false,
+  startedAt: 0,
+  // Per-session results (for summary)
+  results: { 1: 0, 2: 0, 3: 0, learned: 0 },
+};
+
+// DOM refs
+const focusBtn = document.getElementById("focus-mode-btn");
+const focusSessionEl = document.getElementById("focus-session");
+const focusSetupEl = document.getElementById("focus-setup");
+const focusCardViewEl = document.getElementById("focus-card-view");
+const focusSummaryEl = document.getElementById("focus-summary");
+const focusCatPickerEl = document.getElementById("focus-cat-picker");
+const focusRatingPickerEl = document.getElementById("focus-rating-picker");
+const focusCountPickerEl = document.getElementById("focus-count-picker");
+const focusOrderPickerEl = document.getElementById("focus-order-picker");
+const focusSetupSummaryEl = document.getElementById("focus-setup-summary");
+const focusStartBtn = document.getElementById("focus-start-btn");
+const focusCloseBtn = document.getElementById("focus-close-btn");
+const focusProgressCountEl = document.getElementById("focus-progress-count");
+const focusProgressFillEl = document.getElementById("focus-progress-fill");
+const focusCardEl = document.getElementById("focus-card");
+const focusCardNumEl = document.getElementById("focus-card-num");
+const focusDeEl = document.getElementById("focus-de");
+const focusEsEl = document.getElementById("focus-es");
+const focusSideEsEl = document.getElementById("focus-side-es");
+const focusRevealBtn = document.getElementById("focus-reveal-btn");
+const focusPlayBtn = document.getElementById("focus-play-btn");
+const focusMnemonicAreaEl = document.getElementById("focus-mnemonic-area");
+const focusRatingsEl = document.getElementById("focus-ratings");
+const focusSummaryStatsEl = document.getElementById("focus-summary-stats");
+const focusSummaryBackBtn = document.getElementById("focus-summary-back");
+const focusSummaryRestartBtn = document.getElementById("focus-summary-restart");
+
+// ----- Setup view: build pickers -----
+function buildFocusCatPicker() {
+  focusCatPickerEl.innerHTML = "";
+  for (const cat of DATA.categories) {
+    const chip = document.createElement("button");
+    chip.className = "focus-cat-chip" + (focus.cats.has(cat.key) ? " active" : "");
+    chip.textContent = cat.label;
+    chip.onclick = function () {
+      if (focus.cats.has(cat.key)) focus.cats.delete(cat.key);
+      else focus.cats.add(cat.key);
+      chip.classList.toggle("active");
+      updateFocusSetupSummary();
+    };
+    focusCatPickerEl.appendChild(chip);
+  }
+}
+
+function buildFocusRatingPicker() {
+  focusRatingPickerEl.innerHTML = "";
+  const items = [
+    { key: "unrated", label: "Unrated", icon: '<span class="chip-stars"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg></span>' },
+    { key: "1", label: "Schwierig", icon: '<span class="chip-stars"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg></span>' },
+    { key: "2", label: "Okay", icon: '<span class="chip-stars"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg></span>' },
+    { key: "3", label: "Easy", icon: '<span class="chip-stars"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg></span>' },
+    { key: "learned", label: "Gelernt", icon: '<span class="chip-brain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2z"/></svg></span>' },
+  ];
+  for (const it of items) {
+    const chip = document.createElement("button");
+    chip.className = "focus-rating-chip" + (focus.ratings.has(it.key) ? " active" : "");
+    chip.innerHTML = it.icon + '<span>' + it.label + '</span>';
+    chip.onclick = function () {
+      if (focus.ratings.has(it.key)) focus.ratings.delete(it.key);
+      else focus.ratings.add(it.key);
+      chip.classList.toggle("active");
+      updateFocusSetupSummary();
+    };
+    focusRatingPickerEl.appendChild(chip);
+  }
+}
+
+function wireFocusCountPicker() {
+  focusCountPickerEl.querySelectorAll(".focus-count-chip").forEach(function (btn) {
+    btn.onclick = function () {
+      focusCountPickerEl.querySelectorAll(".focus-count-chip").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      const v = btn.dataset.count;
+      focus.count = v === "all" ? "all" : parseInt(v, 10);
+      updateFocusSetupSummary();
+    };
+  });
+}
+
+function wireFocusOrderPicker() {
+  focusOrderPickerEl.querySelectorAll(".focus-order-chip").forEach(function (btn) {
+    btn.onclick = function () {
+      focusOrderPickerEl.querySelectorAll(".focus-order-chip").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      focus.order = btn.dataset.order;
+    };
+  });
+}
+
+// Filter sentences according to the setup config (no count/order yet — that's done at start)
+function focusEligibleSentences() {
+  return allSentences().filter(function (s) {
+    if (s.archived) return false;
+    if (s.pending) return false;          // no point practicing untranslated
+    if (focus.cats.size > 0 && !s.cats.some(function (c) { return focus.cats.has(c); })) return false;
+    if (focus.ratings.size > 0) {
+      let match = false;
+      for (const key of focus.ratings) {
+        if (ratingMatches(s.id, key)) { match = true; break; }
+      }
+      if (!match) return false;
+    }
+    return true;
+  });
+}
+
+function updateFocusSetupSummary() {
+  const eligible = focusEligibleSentences();
+  const willPlay = focus.count === "all" ? eligible.length : Math.min(focus.count, eligible.length);
+  focusSetupSummaryEl.textContent = eligible.length === 0
+    ? "Keine Karten in dieser Auswahl"
+    : (willPlay + " von " + eligible.length + " Karten");
+  focusStartBtn.disabled = eligible.length === 0;
+}
+
+// ----- Session lifecycle -----
+function startFocusSession() {
+  const eligible = focusEligibleSentences();
+  if (eligible.length === 0) return;
+
+  // Order
+  let ordered = eligible.slice();
+  if (focus.order === "random") {
+    for (let i = ordered.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = ordered[i]; ordered[i] = ordered[j]; ordered[j] = tmp;
+    }
+  } else if (focus.order === "hardest") {
+    // 1-star < unrated < 2-star < 3-star < learned (hardest first)
+    const score = function (s) {
+      const r = getRating(s.id);
+      if (r === 1) return 0;
+      if (r === null) return 1;
+      if (r === 2) return 2;
+      if (r === 3) return 3;
+      if (r === "learned") return 4;
+      return 5;
+    };
+    ordered.sort(function (a, b) { return score(a) - score(b); });
+  } else if (focus.order === "oldest") {
+    ordered.sort(function (a, b) { return a.id - b.id; });
+  }
+
+  // Count cap
+  if (focus.count !== "all") ordered = ordered.slice(0, focus.count);
+
+  focus.queue = ordered.map(function (s) { return s.id; });
+  focus.idx = 0;
+  focus.revealed = false;
+  focus.active = true;
+  focus.startedAt = Date.now();
+  focus.results = { 1: 0, 2: 0, 3: 0, learned: 0 };
+
+  focusSetupEl.style.display = "none";
+  focusSummaryEl.style.display = "none";
+  focusCardViewEl.style.display = "flex";
+  renderFocusCard();
+}
+
+function endFocusSession(reason) {
+  focus.active = false;
+  if (reason === "completed") {
+    focusCardViewEl.style.display = "none";
+    focusSummaryEl.style.display = "block";
+    renderFocusSummary();
+  } else {
+    // aborted → back to setup
+    focusCardViewEl.style.display = "none";
+    focusSummaryEl.style.display = "none";
+    focusSetupEl.style.display = "block";
+    updateFocusSetupSummary();
+  }
+}
+
+// ----- Render active card -----
+function renderFocusCard() {
+  const id = focus.queue[focus.idx];
+  const s = getSentenceById(id);
+  if (!s) { endFocusSession("aborted"); return; }
+
+  // Progress
+  focusProgressCountEl.textContent = (focus.idx + 1) + " / " + focus.queue.length;
+  const pct = Math.round((focus.idx / focus.queue.length) * 100);
+  focusProgressFillEl.style.width = pct + "%";
+
+  focusCardNumEl.textContent = "#" + s.id;
+  focusDeEl.textContent = s.de;
+  focusEsEl.textContent = s.es || "(keine Übersetzung)";
+
+  // Reset reveal state
+  focus.revealed = false;
+  focusRevealBtn.style.display = "inline-flex";
+  focusSideEsEl.style.display = "none";
+  focusRatingsEl.style.display = "none";
+  focusMnemonicAreaEl.style.display = "none";
+  focusMnemonicAreaEl.innerHTML = "";
+
+  // Play button enable/disable based on audio availability
+  const hasAudio = !!userAudioUrls[id] || !!s.audio;
+  focusPlayBtn.disabled = !hasAudio;
+}
+
+function revealFocusCard() {
+  if (focus.revealed) return;
+  focus.revealed = true;
+  focusRevealBtn.style.display = "none";
+  focusSideEsEl.style.display = "flex";
+  focusRatingsEl.style.display = "grid";
+  renderFocusMnemonic();
+}
+
+function renderFocusMnemonic() {
+  const id = focus.queue[focus.idx];
+  focusMnemonicAreaEl.innerHTML = "";
+  focusMnemonicAreaEl.style.display = "block";
+
+  if (state.editingMnemonics.has(id)) {
+    // Editor
+    const editor = document.createElement("div");
+    editor.className = "focus-mnemonic-editor";
+    const ta = document.createElement("textarea");
+    ta.placeholder = "Eselsbrücke / Denkhilfe…";
+    ta.value = state.mnemonics[id] || "";
+    editor.appendChild(ta);
+    const actions = document.createElement("div");
+    actions.className = "focus-mnemonic-editor-actions";
+    const genBtn = document.createElement("button");
+    genBtn.className = "mnemonic-generate-btn";
+    genBtn.title = "Eselsbrücke mit Claude generieren";
+    genBtn.innerHTML = '<span class="gen-icon">✨</span><span>Vorschlag</span>';
+    genBtn.onclick = function () { generateMnemonicViaAPI(id, ta, genBtn); };
+    actions.appendChild(genBtn);
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "Abbrechen";
+    cancelBtn.onclick = function () {
+      state.editingMnemonics.delete(id);
+      renderFocusMnemonic();
+    };
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "primary";
+    saveBtn.textContent = "Speichern";
+    saveBtn.onclick = function () {
+      const v = ta.value.trim();
+      if (v) {
+        state.mnemonics[id] = v;
+        saveJSON("hl_mnemonics", state.mnemonics);
+        state.shownMnemonics.add(id);
+        saveShownMnemonics();
+        showToast("Eselsbrücke gespeichert.");
+      } else if (state.mnemonics[id]) {
+        delete state.mnemonics[id];
+        saveJSON("hl_mnemonics", state.mnemonics);
+        state.shownMnemonics.delete(id);
+        saveShownMnemonics();
+      }
+      state.editingMnemonics.delete(id);
+      renderFocusMnemonic();
+    };
+    actions.appendChild(cancelBtn);
+    actions.appendChild(saveBtn);
+    editor.appendChild(actions);
+    focusMnemonicAreaEl.appendChild(editor);
+    setTimeout(function () { ta.focus(); }, 50);
+  } else if (state.mnemonics[id]) {
+    // Display existing
+    const disp = document.createElement("div");
+    disp.className = "focus-mnemonic-display";
+    const text = document.createElement("div");
+    text.className = "focus-mnemonic-text";
+    text.textContent = state.mnemonics[id];
+    disp.appendChild(text);
+    const actions = document.createElement("div");
+    actions.className = "focus-mnemonic-actions";
+    const editBtn = document.createElement("button");
+    editBtn.className = "focus-mnemonic-icon-btn";
+    editBtn.title = "Bearbeiten";
+    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    editBtn.onclick = function () {
+      state.editingMnemonics.add(id);
+      renderFocusMnemonic();
+    };
+    const delBtn = document.createElement("button");
+    delBtn.className = "focus-mnemonic-icon-btn";
+    delBtn.title = "Löschen";
+    delBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14H7L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+    delBtn.onclick = function () {
+      if (!confirm("Eselsbrücke wirklich löschen?")) return;
+      delete state.mnemonics[id];
+      saveJSON("hl_mnemonics", state.mnemonics);
+      state.shownMnemonics.delete(id);
+      saveShownMnemonics();
+      renderFocusMnemonic();
+      showToast("Eselsbrücke gelöscht.");
+    };
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    disp.appendChild(actions);
+    focusMnemonicAreaEl.appendChild(disp);
+  } else {
+    // Add button
+    const addBtn = document.createElement("button");
+    addBtn.className = "focus-mnemonic-add-btn";
+    addBtn.innerHTML = '<span style="font-size:14px;">💡</span><span>Eselsbrücke hinzufügen</span>';
+    addBtn.onclick = function () {
+      state.editingMnemonics.add(id);
+      renderFocusMnemonic();
+    };
+    focusMnemonicAreaEl.appendChild(addBtn);
+  }
+}
+
+function playFocusAudio() {
+  const id = focus.queue[focus.idx];
+  const s = getSentenceById(id);
+  if (!s) return;
+  const src = userAudioUrls[id] || s.audio;
+  if (!src) { showToast("Kein Audio für diesen Satz."); return; }
+  audioEl.src = src;
+  audioEl.playbackRate = state.speed;
+  audioEl.play().catch(function (err) { console.error("Focus play failed", err); });
+}
+
+function rateFocusAndAdvance(rateKey) {
+  if (!focus.revealed) return;          // must reveal before rating
+  const id = focus.queue[focus.idx];
+  const value = rateKey === "learned" ? "learned" : parseInt(rateKey, 10);
+  setRating(id, value);
+  focus.results[rateKey] = (focus.results[rateKey] || 0) + 1;
+
+  // Also re-render the main card list so list view stays in sync (cheap)
+  // (Don't render now if we're in focus mode — but data is already saved)
+
+  // Advance
+  focus.idx++;
+  if (focus.idx >= focus.queue.length) {
+    endFocusSession("completed");
+  } else {
+    renderFocusCard();
+  }
+}
+
+// ----- Summary -----
+function renderFocusSummary() {
+  const total = focus.queue.length;
+  const elapsed = Math.round((Date.now() - focus.startedAt) / 1000);
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  const timeStr = mins > 0 ? mins + "m " + secs + "s" : secs + "s";
+
+  focusSummaryStatsEl.innerHTML = "";
+  const stats = [
+    { label: "Karten", value: total },
+    { label: "Gelernt", value: focus.results.learned || 0 },
+    { label: "Schwierig", value: focus.results[1] || 0 },
+    { label: "Dauer", value: timeStr },
+  ];
+  for (const st of stats) {
+    const card = document.createElement("div");
+    card.className = "focus-summary-stat";
+    card.innerHTML = '<div class="focus-summary-stat-value">' + st.value + '</div>' +
+                     '<div class="focus-summary-stat-label">' + st.label + '</div>';
+    focusSummaryStatsEl.appendChild(card);
+  }
+}
+
+// ----- Wiring -----
+function setFocusModeActive() {
+  state.mode = "focus";
+  document.body.classList.add("focus");
+  document.body.classList.remove("recall");
+  listenBtn.classList.remove("primary"); listenBtn.classList.add("secondary");
+  recallBtn.classList.remove("primary"); recallBtn.classList.add("secondary");
+  focusBtn.classList.remove("secondary"); focusBtn.classList.add("primary");
+  modeHint.textContent = "Anki-Stil: eine Karte nach der anderen, mit Eselsbrücken.";
+  // Show setup if no active session
+  if (focus.active) {
+    focusSetupEl.style.display = "none";
+    focusSummaryEl.style.display = "none";
+    focusCardViewEl.style.display = "flex";
+  } else {
+    focusSetupEl.style.display = "block";
+    focusCardViewEl.style.display = "none";
+    focusSummaryEl.style.display = "none";
+    updateFocusSetupSummary();
+  }
+}
+
+focusBtn.onclick = setFocusModeActive;
+
+// When switching to listen or recall, deactivate focus body class
+const _origListenBtnOnclick = listenBtn.onclick;
+listenBtn.onclick = function () {
+  document.body.classList.remove("focus");
+  focusBtn.classList.remove("primary"); focusBtn.classList.add("secondary");
+  _origListenBtnOnclick.call(this);
+};
+const _origRecallBtnOnclick = recallBtn.onclick;
+recallBtn.onclick = function () {
+  document.body.classList.remove("focus");
+  focusBtn.classList.remove("primary"); focusBtn.classList.add("secondary");
+  _origRecallBtnOnclick.call(this);
+};
+
+focusStartBtn.onclick = startFocusSession;
+focusCloseBtn.onclick = function () {
+  if (focus.idx > 0 && focus.idx < focus.queue.length) {
+    if (!confirm("Session abbrechen? Bereits bewertete Karten bleiben gespeichert.")) return;
+  }
+  endFocusSession("aborted");
+};
+focusSummaryBackBtn.onclick = function () { endFocusSession("aborted"); };
+focusSummaryRestartBtn.onclick = function () {
+  focusSummaryEl.style.display = "none";
+  focusSetupEl.style.display = "block";
+  updateFocusSetupSummary();
+};
+
+focusRevealBtn.onclick = revealFocusCard;
+focusPlayBtn.onclick = playFocusAudio;
+
+// Whole-card click reveals (but ignore clicks on buttons inside)
+focusCardEl.addEventListener("click", function (e) {
+  if (focus.revealed) return;
+  // Only reveal if click was on the card itself, not on a button/textarea
+  if (e.target.closest("button") || e.target.closest("textarea")) return;
+  revealFocusCard();
+});
+
+// Wire rating buttons
+focusRatingsEl.querySelectorAll(".focus-rating-btn").forEach(function (btn) {
+  btn.onclick = function () { rateFocusAndAdvance(btn.dataset.rate); };
+});
+
+// Keyboard shortcuts in focus mode
+document.addEventListener("keydown", function (e) {
+  if (state.mode !== "focus" || !focus.active) return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  if (e.code === "Space") {
+    e.preventDefault();
+    if (!focus.revealed) revealFocusCard();
+    else playFocusAudio();
+  } else if (e.code === "Digit1" && focus.revealed) { e.preventDefault(); rateFocusAndAdvance("1"); }
+  else if (e.code === "Digit2" && focus.revealed) { e.preventDefault(); rateFocusAndAdvance("2"); }
+  else if (e.code === "Digit3" && focus.revealed) { e.preventDefault(); rateFocusAndAdvance("3"); }
+  else if (e.code === "Digit4" && focus.revealed) { e.preventDefault(); rateFocusAndAdvance("learned"); }
+  else if (e.code === "Escape") {
+    e.preventDefault();
+    focusCloseBtn.click();
+  }
+});
+
+// Init the focus setup UI
+buildFocusCatPicker();
+buildFocusRatingPicker();
+wireFocusCountPicker();
+wireFocusOrderPicker();
+updateFocusSetupSummary();
 
 // Auth comes last so all DOM handlers are wired up first
 initAuth();
