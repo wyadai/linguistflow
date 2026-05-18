@@ -89,6 +89,43 @@ function deleteAudioFromIDB(id) {
     req.onerror = function () { resolve(); };
   });
 }
+// Returns all audio blobs from IDB as [{id, blob}, ...]. Used for one-time
+// migration to Supabase Storage. Resolves to [] if DB not ready.
+function getAllAudiosFromIDB() {
+  return new Promise(function (resolve) {
+    if (!_audioDb) { resolve([]); return; }
+    const tx = _audioDb.transaction("audios", "readonly");
+    const store = tx.objectStore("audios");
+    const req = store.getAll();
+    req.onsuccess = function () { resolve(req.result || []); };
+    req.onerror = function () { resolve([]); };
+  });
+}
+// Promise that resolves once IDB is ready. Set when initAudioDB() is called at boot.
+let _audioDbReady = null;
+
+// ===== Audio source resolution =====
+// Single source of truth for "where does this sentence's audio come from?"
+// Priority:
+//   1. Supabase Storage public URL (s.audio_path)  — synced across devices
+//   2. IDB-cached blob URL (userAudioUrls)         — user-generated audio, this device / offline cache
+//   3. sentence.audio                               — original 84 sentences (repo files)
+//   4. null                                         — no audio available
+function audioSrcFor(s) {
+  if (!s) return null;
+  if (s.audio_path) {
+    try {
+      const { data } = sb.storage.from("audios").getPublicUrl(s.audio_path);
+      if (data && data.publicUrl) return data.publicUrl;
+    } catch (e) {
+      console.warn("getPublicUrl failed for", s.audio_path, e);
+    }
+  }
+  return userAudioUrls[s.id] || s.audio || null;
+}
+function hasAudio(s) {
+  return !!audioSrcFor(s);
+}
 
 function loadJSON(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || "null") || fallback; }
@@ -397,6 +434,29 @@ async function generateAudioFor(id) {
       return false;
     }
     const blob = await resp.blob();
+
+    // Try to upload to Supabase Storage so the audio is available on all devices.
+    // Only for user sentences and only when logged in. Fails gracefully → IDB-only fallback.
+    if (currentUser && isUserSentence(id)) {
+      const path = currentUser.id + "/sentence_" + id + ".mp3";
+      try {
+        const { error: upErr } = await sb.storage.from("audios")
+          .upload(path, blob, { upsert: true, contentType: "audio/mpeg" });
+        if (upErr) throw upErr;
+        // Persist audio_path on the sentence: state, cloud, localStorage cache
+        const s = getSentenceById(id);
+        if (s) s.audio_path = path;
+        const { error: dbErr } = await sb.from("user_sentences")
+          .update({ audio_path: path }).eq("id", id).eq("user_id", currentUser.id);
+        if (dbErr) console.warn("audio_path DB update failed:", dbErr);
+        localStorage.setItem("hl_user_sentences", JSON.stringify(state.userSentences));
+      } catch (storageErr) {
+        console.warn("Storage upload failed, IDB-only fallback:", storageErr);
+        // No toast — IDB cache below still gives a working local experience.
+      }
+    }
+
+    // Always save to IDB as offline cache (also used when audio_path is empty)
     await saveAudioToIDB(id, blob);
     return true;
   } catch (e) {
@@ -408,7 +468,7 @@ async function generateAudioFor(id) {
 
 async function generateAllPendingAudios() {
   const candidates = state.userSentences.filter(function (s) {
-    return !s.archived && s.es && !s.pending && !userAudioUrls[s.id];
+    return !s.archived && s.es && !s.pending && !hasAudio(s);
   });
   if (candidates.length === 0) { showToast("Keine ausstehenden Audios."); return; }
   if (!state.elKey) { showToast("Bitte ElevenLabs API Key eingeben."); return; }
@@ -432,7 +492,7 @@ generateAllAudioBtn.onclick = generateAllPendingAudios;
 
 function updateGenerateAllAudioBtn() {
   const candidates = state.userSentences.filter(function (s) {
-    return !s.archived && s.es && !s.pending && !userAudioUrls[s.id];
+    return !s.archived && s.es && !s.pending && !hasAudio(s);
   });
   generateAllAudioBtn.disabled = !state.elKey || candidates.length === 0;
   if (!state.elKey) generateAllAudioText.textContent = "ElevenLabs Key fehlt";
@@ -869,6 +929,7 @@ function permanentDeleteUserSentence(id, silent) {
   const s = state.userSentences.find(function (x) { return x.id === id; });
   if (!s) return;
   if (!silent && !confirm("Karte DAUERHAFT löschen? Diese Aktion kann nicht rückgängig gemacht werden.\n\n„" + s.de.slice(0, 80) + "…“")) return;
+  const audioPathToDelete = s.audio_path || "";
   state.userSentences = state.userSentences.filter(function (x) { return x.id !== id; });
   delete state.ratings[id];
   delete state.mnemonics[id];
@@ -879,6 +940,13 @@ function permanentDeleteUserSentence(id, silent) {
   saveJSON("hl_mnemonics", state.mnemonics);
   saveShownMnemonics();
   deleteAudioFromIDB(id);
+  // Also delete from Supabase Storage if this card had a cloud audio file.
+  // Fire-and-forget: a Storage cleanup failure shouldn't block the local delete.
+  if (audioPathToDelete && currentUser) {
+    sb.storage.from("audios").remove([audioPathToDelete]).then(function (res) {
+      if (res && res.error) console.warn("Storage delete failed for", audioPathToDelete, res.error);
+    }).catch(function (e) { console.warn("Storage delete error:", e); });
+  }
   applyFilter();
   updatePendingBadge();
   updateProgress();
@@ -1030,7 +1098,7 @@ function buildCard(id) {
   playBtn.className = "icon-card-btn";
   playBtn.title = "Abspielen";
   playBtn.innerHTML = ICON_SPEAKER;
-  const _hasAudio = !!s.audio || !!userAudioUrls[id];
+  const _hasAudio = hasAudio(s);
   if (!_hasAudio) playBtn.disabled = true;
   playBtn.onclick = function (e) { e.stopPropagation(); jumpToAndPlay(id); };
   header.appendChild(playBtn);
@@ -1437,7 +1505,7 @@ function revealCurrent() {
 function play() {
   const s = currentSentence();
   if (!s) return;
-  const src = userAudioUrls[s.id] || s.audio;
+  const src = audioSrcFor(s);
   if (!src) {
     if (state.autoPlay && state.mode !== "recall") next();
     else showToast("Kein Audio für diesen Satz.");
@@ -1648,7 +1716,7 @@ function buildUserSentencesList() {
 
     const statusEl = document.createElement("span");
     statusEl.className = "us-status";
-    statusEl.textContent = s.archived ? "archiviert" : (s.pending ? "ausstehend" : (userAudioUrls[s.id] ? "✓ audio" : "übersetzt"));
+    statusEl.textContent = s.archived ? "archiviert" : (s.pending ? "ausstehend" : (hasAudio(s) ? "✓ audio" : "übersetzt"));
     row.appendChild(statusEl);
 
     const actions = document.createElement("div");
@@ -1770,6 +1838,7 @@ async function onLogin() {
   try {
     await pullCloudData();
     await maybeMigrate();
+    await migrateIDBToStorage();
     setSyncStatus("synced");
     showToast("Eingeloggt als " + currentUser.email);
   } catch (e) {
@@ -1970,6 +2039,82 @@ async function maybeMigrate() {
   showToast("Migration abgeschlossen — " + summary, 3500);
 }
 
+// One-time migration: upload all user-generated audios from IDB to Supabase Storage.
+// Per-device guard via localStorage so each device migrates its own IDB once.
+// Idempotent across devices because `upsert: true` overwrites identical content.
+async function migrateIDBToStorage() {
+  if (!currentUser) return;
+  const flagKey = "hl_audio_migrated_" + currentUser.id;
+  if (localStorage.getItem(flagKey) === "true") {
+    console.log("[migrate] flag already set — skipping");
+    return;
+  }
+
+  // Ensure IDB is fully open before reading
+  if (_audioDbReady) { try { await _audioDbReady; } catch (e) {} }
+
+  const blobs = await getAllAudiosFromIDB();
+  // Only user sentences (originals 1-84 stay as repo files, never go to Storage)
+  const userBlobs = blobs.filter(function (b) { return isUserSentence(b.id); });
+  console.log("[migrate] IDB user-audios found:", userBlobs.length);
+  if (userBlobs.length === 0) {
+    // Nothing on this device to migrate. Mark done so we don't retry every login.
+    localStorage.setItem(flagKey, "true");
+    return;
+  }
+
+  setSyncStatus("syncing");
+  let uploaded = 0, skipped = 0, failed = 0;
+  for (const { id, blob } of userBlobs) {
+    const s = getSentenceById(id);
+    if (!s) { skipped++; continue; }       // sentence was deleted elsewhere
+    if (s.audio_path) { skipped++; continue; } // already migrated (by another device or earlier run)
+
+    const path = currentUser.id + "/sentence_" + id + ".mp3";
+    try {
+      const { error: upErr } = await sb.storage.from("audios")
+        .upload(path, blob, { upsert: true, contentType: "audio/mpeg" });
+      if (upErr) throw upErr;
+      const { error: dbErr } = await sb.from("user_sentences")
+        .update({ audio_path: path }).eq("id", id).eq("user_id", currentUser.id);
+      if (dbErr) throw dbErr;
+      s.audio_path = path;
+      uploaded++;
+    } catch (e) {
+      console.warn("Migration: failed for sentence", id, e);
+      failed++;
+    }
+  }
+
+  console.log("[migrate] result — uploaded:", uploaded, "skipped:", skipped, "failed:", failed);
+
+  // Persist updated audio_paths to localStorage cache
+  localStorage.setItem("hl_user_sentences", JSON.stringify(state.userSentences));
+
+  // Set the flag only if no failures — partial failures will retry on next login
+  if (failed === 0) {
+    localStorage.setItem(flagKey, "true");
+  }
+
+  setSyncStatus(failed === 0 ? "synced" : "error");
+
+  // Always show feedback when migration actually inspected blobs
+  let msg;
+  if (uploaded === 0 && failed === 0) {
+    msg = "Audio-Cloud ist aktuell (" + skipped + " bereits synchron)";
+  } else {
+    msg = "Audio-Migration: " + uploaded + " in Cloud"
+      + (skipped ? ", " + skipped + " übersprungen" : "")
+      + (failed ? ", " + failed + " fehlgeschlagen" : "");
+  }
+  showToast(msg, 4000);
+
+  // Re-render so UI reflects new audio availability
+  if (typeof renderCards === "function") renderCards();
+  if (typeof buildUserSentencesList === "function") buildUserSentencesList();
+  if (typeof updateGenerateAllAudioBtn === "function") updateGenerateAllAudioBtn();
+}
+
 // ===== Init =====
 buildCatFilter();
 buildNsCatPickers();
@@ -1986,7 +2131,7 @@ updateElKeyUI();
 updatePendingBadge();
 updateAutoplayUI();
 buildUserSentencesList();
-initAudioDB().then(function () {
+_audioDbReady = initAudioDB().then(function () {
   renderCards();
   buildUserSentencesList();
   updateGenerateAllAudioBtn();
@@ -2170,6 +2315,7 @@ function startFocusSession() {
   focusSetupEl.style.display = "none";
   focusSummaryEl.style.display = "none";
   focusCardViewEl.style.display = "flex";
+  window.scrollTo(0, 0);
   renderFocusCard();
 }
 
@@ -2212,8 +2358,7 @@ function renderFocusCard() {
   focusMnemonicAreaEl.innerHTML = "";
 
   // Play button enable/disable based on audio availability
-  const hasAudio = !!userAudioUrls[id] || !!s.audio;
-  focusPlayBtn.disabled = !hasAudio;
+  focusPlayBtn.disabled = !hasAudio(s);
 }
 
 function revealFocusCard() {
@@ -2329,7 +2474,7 @@ function playFocusAudio() {
   const id = focus.queue[focus.idx];
   const s = getSentenceById(id);
   if (!s) return;
-  const src = userAudioUrls[id] || s.audio;
+  const src = audioSrcFor(s);
   if (!src) { showToast("Kein Audio für diesen Satz."); return; }
   audioEl.src = src;
   audioEl.playbackRate = state.speed;
@@ -2383,6 +2528,7 @@ function renderFocusSummary() {
 function setFocusModeActive() {
   state.mode = "focus";
   document.body.classList.add("focus");
+  window.scrollTo(0, 0);
   document.body.classList.remove("recall");
   listenBtn.classList.remove("primary"); listenBtn.classList.add("secondary");
   recallBtn.classList.remove("primary"); recallBtn.classList.add("secondary");
@@ -2481,8 +2627,8 @@ const car = {
   cats: new Set(loadJSON("hl_car_cats", [])),
   ratings: new Set(loadJSON("hl_car_ratings", ["unrated", "1", "2", "3"])),
   repeats: loadJSON("hl_car_repeats", 3),
-  shadowPause: loadJSON("hl_car_shadow", 3.0),    // seconds of silence after each playback (shadowing gap)
-  sentencePause: loadJSON("hl_car_gap", 1.5),     // seconds between sentences
+  shadowPause: loadJSON("hl_car_shadow", 0.5),    // seconds of silence after each playback (shadowing gap)
+  sentencePause: loadJSON("hl_car_gap", 1.0),     // seconds between sentences
   shuffle: loadJSON("hl_car_shuffle", true),
   loop: loadJSON("hl_car_loop", true),
   night: loadJSON("hl_car_night", false),
@@ -2495,6 +2641,13 @@ const car = {
   pendingTimer: null,
   wakeLock: null,
 };
+
+// One-time migration: bump 3.0/1.5 -> 0.5/1.0 if user is still on old defaults
+if (!localStorage.getItem("hl_car_defaults_v2")) {
+  if (car.shadowPause === 3.0) { car.shadowPause = 0.5; localStorage.setItem("hl_car_shadow", "0.5"); }
+  if (car.sentencePause === 1.5) { car.sentencePause = 1.0; localStorage.setItem("hl_car_gap", "1.0"); }
+  localStorage.setItem("hl_car_defaults_v2", "1");
+}
 
 function saveCarConfig() {
   saveJSON("hl_car_cats", Array.from(car.cats));
@@ -2644,7 +2797,7 @@ function carEligibleSentences() {
     if (s.archived) return false;
     if (s.pending) return false;
     if (!s.es) return false;
-    if (!userAudioUrls[s.id] && !s.audio) return false;
+    if (!hasAudio(s)) return false;
     if (car.cats.size > 0 && !s.cats.some(function (c) { return car.cats.has(c); })) return false;
     if (car.ratings.size > 0) {
       let match = false;
@@ -2706,6 +2859,7 @@ function startCarSession() {
   carActiveEl.style.display = "flex";
   document.body.classList.add("car-driving");
   if (car.night) document.body.classList.add("car-night");
+  window.scrollTo(0, 0);
 
   requestCarWakeLock();
   renderCarCard();
@@ -2752,7 +2906,7 @@ function playCarCurrent() {
   const id = car.queue[car.idx];
   const s = getSentenceById(id);
   if (!s) { exitCarSession(); return; }
-  const src = userAudioUrls[id] || s.audio;
+  const src = audioSrcFor(s);
   if (!src) {
     carStatusEl.textContent = "Kein Audio — überspringe…";
     car.repCount = car.repeats - 1;
@@ -2891,6 +3045,7 @@ carStageEl.addEventListener("click", function () {
 function setCarModeActive() {
   state.mode = "car";
   document.body.classList.add("car");
+  window.scrollTo(0, 0);
   document.body.classList.remove("recall");
   document.body.classList.remove("focus");
   listenBtn.classList.remove("primary"); listenBtn.classList.add("secondary");
