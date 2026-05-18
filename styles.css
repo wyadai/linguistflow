@@ -2464,3 +2464,412 @@ body.new-sentence .new-sentence-page { display: block; }
   }
   .ns-soon-badge { display: none; }
 }
+
+/* =====================================================================
+   AUTO-MODUS (Car Mode) — Shadowing fürs Auto
+   ===================================================================== */
+
+/* Hide main view chrome when in Car Mode (matches focus-mode pattern) */
+body.car .stats-row,
+body.car .progress-row,
+body.car .progress-bar,
+body.car .rating-filter,
+body.car .toolbar,
+body.car #cards,
+body.car .no-results,
+body.car .hint,
+body.car .fab,
+body.car .player { display: none !important; }
+
+.car-session { display: none; }
+body.car .car-session { display: block; margin-top: 4px; }
+
+/* When the active playback view is on, hide the mode buttons too */
+body.car-driving .mode-buttons { display: none !important; }
+
+/* ---- Setup view ---- */
+.car-setup {
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+.car-setup-header {
+  text-align: center;
+  margin-bottom: 24px;
+  color: var(--primary);
+}
+.car-setup-header h2 {
+  margin: 8px 0 6px;
+  font-size: 22px; font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.car-setup-header p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--secondary);
+}
+.car-setup-block { margin-bottom: 20px; }
+.car-setup-label {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--secondary);
+}
+.car-setup-row-label {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.car-setup-row-label .car-setup-label { margin-bottom: 0; }
+.car-setup-value {
+  font-size: 14px; font-weight: 700;
+  color: var(--primary);
+}
+.car-setup-block > .car-setup-label { display: block; margin-bottom: 10px; }
+.car-setup-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--outline);
+  margin-top: 6px;
+}
+
+.car-cat-picker,
+.car-rating-picker {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.car-cat-chip,
+.car-rating-chip {
+  padding: 7px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-lowest);
+  color: var(--secondary);
+  font-family: inherit;
+  font-size: 12px; font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.car-cat-chip:hover, .car-rating-chip:hover {
+  background: var(--surface-high);
+  color: var(--primary);
+}
+.car-cat-chip.active, .car-rating-chip.active {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+.car-rating-chip .chip-stars { display: inline-flex; gap: 1px; color: var(--star); }
+.car-rating-chip .chip-stars svg { width: 12px; height: 12px; }
+.car-rating-chip.active .chip-stars { color: var(--on-primary); }
+.car-rating-chip .chip-brain { display: inline-flex; color: var(--learned); }
+.car-rating-chip .chip-brain svg { width: 14px; height: 14px; }
+.car-rating-chip.active .chip-brain { color: var(--on-primary); }
+
+.car-repeats-picker {
+  display: flex; gap: 6px;
+}
+.car-repeats-chip {
+  flex: 1;
+  padding: 8px 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-low);
+  color: var(--secondary);
+  font-family: inherit;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.car-repeats-chip:hover { background: var(--surface-high); color: var(--primary); }
+.car-repeats-chip.active {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+
+.car-slider {
+  width: 100%;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  height: 18px;
+}
+.car-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--surface-high);
+  border-radius: var(--radius-pill);
+}
+.car-slider::-moz-range-track {
+  height: 4px;
+  background: var(--surface-high);
+  border-radius: var(--radius-pill);
+}
+.car-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px; height: 18px;
+  background: var(--primary);
+  border-radius: 50%;
+  margin-top: -7px;
+  border: none;
+}
+.car-slider::-moz-range-thumb {
+  width: 18px; height: 18px;
+  background: var(--primary);
+  border-radius: 50%;
+  border: none;
+}
+
+.car-toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--surface-container);
+}
+.car-toggle-row:last-child { border-bottom: none; }
+.car-toggle-label {
+  font-size: 14px; font-weight: 600;
+  color: var(--primary);
+}
+.car-toggle-hint {
+  font-size: 11px;
+  color: var(--outline);
+  margin-top: 2px;
+}
+.car-toggle {
+  width: 38px; height: 22px;
+  background: var(--surface-high);
+  border-radius: var(--radius-pill);
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.car-toggle::after {
+  content: "";
+  position: absolute;
+  left: 2px; top: 2px;
+  width: 18px; height: 18px;
+  background: var(--surface-lowest);
+  border-radius: 50%;
+  transition: transform 0.15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+.car-toggle.on { background: var(--primary); }
+.car-toggle.on::after { transform: translateX(16px); }
+
+.car-setup-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--surface-container);
+}
+.car-setup-summary {
+  font-size: 12px; font-weight: 600;
+  color: var(--secondary);
+}
+.car-start-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-family: inherit;
+  font-size: 14px; font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.15s;
+}
+.car-start-btn:hover:not(:disabled) {
+  background: var(--primary-container);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+.car-start-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+/* ---- Active playback view ---- */
+.car-active {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--topbar-h) - 60px);
+  padding: 8px 0 24px;
+}
+.car-active-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.car-close-btn, .car-settings-btn {
+  background: transparent;
+  border: none;
+  color: var(--secondary);
+  width: 44px; height: 44px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background 0.15s;
+}
+.car-close-btn:hover, .car-settings-btn:hover {
+  background: var(--surface-high);
+  color: var(--primary);
+}
+.car-counter {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--secondary);
+}
+
+.car-progress-bar {
+  height: 4px;
+  background: var(--surface-high);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+.car-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: var(--radius-pill);
+  width: 0%;
+  transition: width 0.3s;
+}
+
+.car-stage {
+  flex: 1;
+  display: flex; flex-direction: column;
+  justify-content: center; align-items: center;
+  text-align: center;
+  gap: 22px;
+  padding: 32px 16px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.car-es {
+  font-size: 40px; font-weight: 600;
+  color: var(--primary);
+  line-height: 1.2;
+  max-width: 100%;
+  word-wrap: break-word;
+}
+.car-de {
+  font-size: 18px;
+  font-style: italic;
+  color: var(--outline);
+  line-height: 1.4;
+  max-width: 100%;
+}
+.car-cats {
+  display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+}
+.car-cat-tag {
+  font-size: 11px; font-weight: 500;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-high);
+  color: var(--on-primary-soft);
+}
+.car-status {
+  font-size: 11px; font-weight: 700;
+  color: var(--secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  min-height: 14px;
+}
+
+.car-tap-hint {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  font-size: 11px;
+  color: var(--outline);
+  margin-bottom: 16px;
+}
+
+.car-player {
+  background: var(--primary);
+  border-radius: var(--radius-pill);
+  padding: 8px 14px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px;
+  max-width: 520px;
+  margin: 0 auto;
+  width: 100%;
+}
+.car-ctrl {
+  width: 52px; height: 52px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--on-primary);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background 0.15s, transform 0.1s;
+}
+.car-ctrl:hover { background: rgba(255,255,255,0.1); }
+.car-ctrl:active { transform: scale(0.92); }
+.car-ctrl.main {
+  width: 76px; height: 76px;
+  background: var(--on-primary);
+  color: var(--primary);
+}
+.car-ctrl.main:hover { background: var(--on-primary); transform: scale(1.04); }
+.car-ctrl.main:active { transform: scale(0.96); }
+
+/* ---- Night mode ---- */
+body.car.car-night { background: #050a14; }
+body.car.car-night .topbar {
+  background: #050a14;
+  border-bottom-color: #1c2435;
+}
+body.car.car-night .topbar h1,
+body.car.car-night .topbar .subtitle,
+body.car.car-night .course-chip,
+body.car.car-night .user-avatar-btn { color: #94a0b5; }
+body.car.car-night .car-es { color: #f5f7fa; }
+body.car.car-night .car-de { color: #94a0b5; }
+body.car.car-night .car-counter,
+body.car.car-night .car-status { color: #94a0b5; }
+body.car.car-night .car-close-btn,
+body.car.car-night .car-settings-btn { color: #94a0b5; }
+body.car.car-night .car-close-btn:hover,
+body.car.car-night .car-settings-btn:hover {
+  background: rgba(255,255,255,0.06);
+  color: #f5f7fa;
+}
+body.car.car-night .car-progress-bar { background: #1c2435; }
+body.car.car-night .car-progress-fill { background: #f5f7fa; }
+body.car.car-night .car-cat-tag {
+  background: #1c2435; color: #94a0b5;
+}
+body.car.car-night .car-tap-hint { color: #6b7587; }
+body.car.car-night .car-player { background: #1c2435; }
+body.car.car-night .car-ctrl.main {
+  background: #f5f7fa; color: #050a14;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 720px) {
+  .car-setup { padding: 18px 16px; }
+  .car-setup-header h2 { font-size: 19px; }
+  .car-setup-footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .car-setup-summary { text-align: center; }
+  .car-start-btn { justify-content: center; }
+  .car-es { font-size: 30px; }
+  .car-de { font-size: 15px; }
+  .car-ctrl { width: 48px; height: 48px; }
+  .car-ctrl.main { width: 68px; height: 68px; }
+  .car-ctrl.main .material-symbols-outlined { font-size: 34px !important; }
+}
+@media (max-width: 480px) {
+  .car-es { font-size: 26px; }
+  .car-stage { padding: 16px 8px; gap: 16px; }
+  .car-ctrl { width: 44px; height: 44px; }
+  .car-ctrl.main { width: 64px; height: 64px; }
+}

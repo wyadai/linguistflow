@@ -241,6 +241,10 @@
           <span class="material-symbols-outlined" style="font-size:18px;">center_focus_strong</span>
           <span class="label-full">Fokus-Session</span>
         </button>
+        <button class="mode-btn secondary" id="car-mode-btn">
+          <span class="material-symbols-outlined" style="font-size:18px;">directions_car</span>
+          <span class="label-full">Auto-Modus</span>
+        </button>
       </div>
       <div class="hint" id="mode-hint">Spanisch zuerst lesen/hören, Deutsch als Hilfe darunter.</div>
 
@@ -413,6 +417,136 @@
               <span class="material-symbols-outlined" style="font-size:20px;">refresh</span>
             </button>
           </div>
+        </div>
+
+      </div>
+
+      <!-- ===== Auto-Modus (nur im Car-Mode sichtbar) ===== -->
+      <div class="car-session" id="car-session">
+
+        <!-- View A: Setup -->
+        <div class="car-setup" id="car-setup">
+          <div class="car-setup-header">
+            <span class="material-symbols-outlined" style="font-size:28px;">directions_car</span>
+            <h2>Auto-Modus</h2>
+            <p>Shadowing fürs Auto — eine Karte nach der anderen, Audio läuft durch, Bildschirm bleibt an.</p>
+          </div>
+
+          <div class="car-setup-block">
+            <div class="car-setup-label">Kategorien</div>
+            <div class="car-cat-picker" id="car-cat-picker"></div>
+            <small class="car-setup-hint">Leer = alle Kategorien</small>
+          </div>
+
+          <div class="car-setup-block">
+            <div class="car-setup-label">Bewertungen einbeziehen</div>
+            <div class="car-rating-picker" id="car-rating-picker"></div>
+          </div>
+
+          <div class="car-setup-block">
+            <div class="car-setup-row-label">
+              <span class="car-setup-label">Wiederholungen pro Satz</span>
+              <span class="car-setup-value" id="car-repeats-value">3×</span>
+            </div>
+            <div class="car-repeats-picker" id="car-repeats-picker">
+              <button class="car-repeats-chip" data-rep="1">1</button>
+              <button class="car-repeats-chip" data-rep="2">2</button>
+              <button class="car-repeats-chip active" data-rep="3">3</button>
+              <button class="car-repeats-chip" data-rep="4">4</button>
+              <button class="car-repeats-chip" data-rep="5">5</button>
+            </div>
+          </div>
+
+          <div class="car-setup-block">
+            <div class="car-setup-row-label">
+              <span class="car-setup-label">Shadow-Pause</span>
+              <span class="car-setup-value" id="car-shadow-value">3.0 s</span>
+            </div>
+            <input type="range" class="car-slider" id="car-shadow-slider" min="0" max="8" step="0.5" value="3" />
+            <small class="car-setup-hint">Stille nach jedem Playback — Zeit zum Nachsprechen.</small>
+          </div>
+
+          <div class="car-setup-block">
+            <div class="car-setup-row-label">
+              <span class="car-setup-label">Pause zwischen Sätzen</span>
+              <span class="car-setup-value" id="car-gap-value">1.5 s</span>
+            </div>
+            <input type="range" class="car-slider" id="car-gap-slider" min="0" max="5" step="0.5" value="1.5" />
+          </div>
+
+          <div class="car-setup-block">
+            <div class="car-toggle-row">
+              <div>
+                <div class="car-toggle-label">Zufallsreihenfolge</div>
+                <div class="car-toggle-hint">Bei jedem Durchgang neu mischen</div>
+              </div>
+              <div class="car-toggle on" id="car-shuffle-toggle"></div>
+            </div>
+            <div class="car-toggle-row">
+              <div>
+                <div class="car-toggle-label">Endlos-Loop</div>
+                <div class="car-toggle-hint">Nach Durchlauf wieder von vorne</div>
+              </div>
+              <div class="car-toggle on" id="car-loop-toggle"></div>
+            </div>
+            <div class="car-toggle-row">
+              <div>
+                <div class="car-toggle-label">Nacht-Modus</div>
+                <div class="car-toggle-hint">Dunkles Theme fürs Abendfahren</div>
+              </div>
+              <div class="car-toggle" id="car-night-toggle"></div>
+            </div>
+          </div>
+
+          <div class="car-setup-footer">
+            <div class="car-setup-summary" id="car-setup-summary">— Karten verfügbar</div>
+            <button class="car-start-btn" id="car-start-btn">
+              <span class="material-symbols-outlined" style="font-size:20px;">play_arrow</span>
+              <span>Start</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- View B: Active playback -->
+        <div class="car-active" id="car-active" style="display:none;">
+
+          <div class="car-active-topbar">
+            <button class="car-close-btn" id="car-close-btn" title="Beenden">
+              <span class="material-symbols-outlined" style="font-size:24px;">close</span>
+            </button>
+            <div class="car-counter" id="car-counter">KARTE — / — · WDH — / —</div>
+            <button class="car-settings-btn" id="car-settings-btn" title="Einstellungen">
+              <span class="material-symbols-outlined" style="font-size:22px;">tune</span>
+            </button>
+          </div>
+
+          <div class="car-progress-bar"><div class="car-progress-fill" id="car-progress-fill"></div></div>
+
+          <div class="car-stage" id="car-stage">
+            <div class="car-es" id="car-es">—</div>
+            <div class="car-de" id="car-de">—</div>
+            <div class="car-cats" id="car-cats"></div>
+            <div class="car-status" id="car-status"></div>
+          </div>
+
+          <div class="car-tap-hint" id="car-tap-hint">
+            <span class="material-symbols-outlined" style="font-size:16px;">touch_app</span>
+            Tippen zum Pausieren
+          </div>
+
+          <div class="car-player">
+            <button class="car-ctrl" id="car-prev-btn" title="Vorheriger">
+              <span class="material-symbols-outlined fill" style="font-size:28px;">skip_previous</span>
+            </button>
+            <button class="car-ctrl main" id="car-play-btn" title="Pause / Play">
+              <span class="material-symbols-outlined fill" id="car-pause-icon" style="font-size:38px;">pause</span>
+              <span class="material-symbols-outlined fill" id="car-play-icon" style="font-size:38px;display:none;">play_arrow</span>
+            </button>
+            <button class="car-ctrl" id="car-next-btn" title="Nächster">
+              <span class="material-symbols-outlined fill" style="font-size:28px;">skip_next</span>
+            </button>
+          </div>
+
         </div>
 
       </div>

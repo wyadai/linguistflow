@@ -1475,6 +1475,7 @@ function prev() {
   else if (state.mode !== "recall" && state.isPlaying && !state.autoPlay) pause();
 }
 audioEl.addEventListener("ended", function () {
+  if (state.mode === "car") return; // Car Mode hat einen eigenen Handler
   state.repeatCount++;
   if (state.repeatCount < state.repeat) { play(); }
   else {
@@ -2470,6 +2471,479 @@ buildFocusRatingPicker();
 wireFocusCountPicker();
 wireFocusOrderPicker();
 updateFocusSetupSummary();
+
+
+// ============================================================
+// AUTO-MODUS (Car Mode) — Shadowing fürs Auto
+// ============================================================
+const car = {
+  // Setup config (persisted in localStorage)
+  cats: new Set(loadJSON("hl_car_cats", [])),
+  ratings: new Set(loadJSON("hl_car_ratings", ["unrated", "1", "2", "3"])),
+  repeats: loadJSON("hl_car_repeats", 3),
+  shadowPause: loadJSON("hl_car_shadow", 3.0),    // seconds of silence after each playback (shadowing gap)
+  sentencePause: loadJSON("hl_car_gap", 1.5),     // seconds between sentences
+  shuffle: loadJSON("hl_car_shuffle", true),
+  loop: loadJSON("hl_car_loop", true),
+  night: loadJSON("hl_car_night", false),
+  // Session state (runtime only)
+  active: false,
+  queue: [],
+  idx: 0,
+  repCount: 0,
+  paused: false,
+  pendingTimer: null,
+  wakeLock: null,
+};
+
+function saveCarConfig() {
+  saveJSON("hl_car_cats", Array.from(car.cats));
+  saveJSON("hl_car_ratings", Array.from(car.ratings));
+  saveJSON("hl_car_repeats", car.repeats);
+  saveJSON("hl_car_shadow", car.shadowPause);
+  saveJSON("hl_car_gap", car.sentencePause);
+  saveJSON("hl_car_shuffle", car.shuffle);
+  saveJSON("hl_car_loop", car.loop);
+  saveJSON("hl_car_night", car.night);
+}
+
+// DOM refs
+const carBtn = document.getElementById("car-mode-btn");
+const carSessionEl = document.getElementById("car-session");
+const carSetupEl = document.getElementById("car-setup");
+const carActiveEl = document.getElementById("car-active");
+const carCatPickerEl = document.getElementById("car-cat-picker");
+const carRatingPickerEl = document.getElementById("car-rating-picker");
+const carRepeatsPickerEl = document.getElementById("car-repeats-picker");
+const carRepeatsValueEl = document.getElementById("car-repeats-value");
+const carShadowSliderEl = document.getElementById("car-shadow-slider");
+const carShadowValueEl = document.getElementById("car-shadow-value");
+const carGapSliderEl = document.getElementById("car-gap-slider");
+const carGapValueEl = document.getElementById("car-gap-value");
+const carShuffleToggleEl = document.getElementById("car-shuffle-toggle");
+const carLoopToggleEl = document.getElementById("car-loop-toggle");
+const carNightToggleEl = document.getElementById("car-night-toggle");
+const carSetupSummaryEl = document.getElementById("car-setup-summary");
+const carStartBtn = document.getElementById("car-start-btn");
+const carCloseBtn = document.getElementById("car-close-btn");
+const carSettingsBtn = document.getElementById("car-settings-btn");
+const carCounterEl = document.getElementById("car-counter");
+const carProgressFillEl = document.getElementById("car-progress-fill");
+const carStageEl = document.getElementById("car-stage");
+const carEsEl = document.getElementById("car-es");
+const carDeEl = document.getElementById("car-de");
+const carCatsEl = document.getElementById("car-cats");
+const carStatusEl = document.getElementById("car-status");
+const carPrevBtn = document.getElementById("car-prev-btn");
+const carNextBtn = document.getElementById("car-next-btn");
+const carPlayBtn = document.getElementById("car-play-btn");
+const carPlayIcon = document.getElementById("car-play-icon");
+const carPauseIcon = document.getElementById("car-pause-icon");
+
+// ---- Build pickers ----
+function buildCarCatPicker() {
+  carCatPickerEl.innerHTML = "";
+  for (const cat of DATA.categories) {
+    const chip = document.createElement("button");
+    chip.className = "car-cat-chip" + (car.cats.has(cat.key) ? " active" : "");
+    chip.textContent = cat.label;
+    chip.onclick = function () {
+      if (car.cats.has(cat.key)) car.cats.delete(cat.key);
+      else car.cats.add(cat.key);
+      chip.classList.toggle("active");
+      saveCarConfig();
+      updateCarSetupSummary();
+    };
+    carCatPickerEl.appendChild(chip);
+  }
+}
+
+function buildCarRatingPicker() {
+  carRatingPickerEl.innerHTML = "";
+  const starSvg = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>';
+  const brainSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2z"/></svg>';
+  const emptyStar = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>';
+  const items = [
+    { key: "unrated", label: "Unrated", icon: '<span class="chip-stars">' + emptyStar + '</span>' },
+    { key: "1", label: "Schwierig", icon: '<span class="chip-stars">' + starSvg + '</span>' },
+    { key: "2", label: "Okay", icon: '<span class="chip-stars">' + starSvg + starSvg + '</span>' },
+    { key: "3", label: "Easy", icon: '<span class="chip-stars">' + starSvg + starSvg + starSvg + '</span>' },
+    { key: "learned", label: "Gelernt", icon: '<span class="chip-brain">' + brainSvg + '</span>' },
+  ];
+  for (const it of items) {
+    const chip = document.createElement("button");
+    chip.className = "car-rating-chip" + (car.ratings.has(it.key) ? " active" : "");
+    chip.innerHTML = it.icon + '<span>' + it.label + '</span>';
+    chip.onclick = function () {
+      if (car.ratings.has(it.key)) car.ratings.delete(it.key);
+      else car.ratings.add(it.key);
+      chip.classList.toggle("active");
+      saveCarConfig();
+      updateCarSetupSummary();
+    };
+    carRatingPickerEl.appendChild(chip);
+  }
+}
+
+// ---- Wire setup controls ----
+function wireCarSetup() {
+  // Repeats segmented control
+  carRepeatsPickerEl.querySelectorAll(".car-repeats-chip").forEach(function (btn) {
+    const val = parseInt(btn.dataset.rep, 10);
+    btn.classList.toggle("active", val === car.repeats);
+    btn.onclick = function () {
+      carRepeatsPickerEl.querySelectorAll(".car-repeats-chip").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      car.repeats = val;
+      carRepeatsValueEl.textContent = car.repeats + "×";
+      saveCarConfig();
+    };
+  });
+  carRepeatsValueEl.textContent = car.repeats + "×";
+
+  // Sliders
+  carShadowSliderEl.value = String(car.shadowPause);
+  carShadowValueEl.textContent = car.shadowPause.toFixed(1) + " s";
+  carShadowSliderEl.oninput = function () {
+    car.shadowPause = parseFloat(carShadowSliderEl.value);
+    carShadowValueEl.textContent = car.shadowPause.toFixed(1) + " s";
+    saveCarConfig();
+  };
+  carGapSliderEl.value = String(car.sentencePause);
+  carGapValueEl.textContent = car.sentencePause.toFixed(1) + " s";
+  carGapSliderEl.oninput = function () {
+    car.sentencePause = parseFloat(carGapSliderEl.value);
+    carGapValueEl.textContent = car.sentencePause.toFixed(1) + " s";
+    saveCarConfig();
+  };
+
+  // Toggles
+  carShuffleToggleEl.classList.toggle("on", car.shuffle);
+  carShuffleToggleEl.onclick = function () {
+    car.shuffle = !car.shuffle;
+    carShuffleToggleEl.classList.toggle("on", car.shuffle);
+    saveCarConfig();
+  };
+  carLoopToggleEl.classList.toggle("on", car.loop);
+  carLoopToggleEl.onclick = function () {
+    car.loop = !car.loop;
+    carLoopToggleEl.classList.toggle("on", car.loop);
+    saveCarConfig();
+  };
+  carNightToggleEl.classList.toggle("on", car.night);
+  carNightToggleEl.onclick = function () {
+    car.night = !car.night;
+    carNightToggleEl.classList.toggle("on", car.night);
+    if (car.active) document.body.classList.toggle("car-night", car.night);
+    saveCarConfig();
+  };
+}
+
+function carEligibleSentences() {
+  return allSentences().filter(function (s) {
+    if (s.archived) return false;
+    if (s.pending) return false;
+    if (!s.es) return false;
+    if (!userAudioUrls[s.id] && !s.audio) return false;
+    if (car.cats.size > 0 && !s.cats.some(function (c) { return car.cats.has(c); })) return false;
+    if (car.ratings.size > 0) {
+      let match = false;
+      for (const key of car.ratings) {
+        if (ratingMatches(s.id, key)) { match = true; break; }
+      }
+      if (!match) return false;
+    }
+    return true;
+  });
+}
+
+function updateCarSetupSummary() {
+  const eligible = carEligibleSentences();
+  carSetupSummaryEl.textContent = eligible.length === 0
+    ? "Keine Karten mit Audio in dieser Auswahl"
+    : (eligible.length + " Karten mit Audio bereit");
+  carStartBtn.disabled = eligible.length === 0;
+}
+
+// ---- Wake Lock ----
+async function requestCarWakeLock() {
+  if (!("wakeLock" in navigator)) return;
+  try {
+    car.wakeLock = await navigator.wakeLock.request("screen");
+    car.wakeLock.addEventListener("release", function () { car.wakeLock = null; });
+  } catch (e) {
+    console.warn("Wake Lock request failed:", e);
+  }
+}
+async function releaseCarWakeLock() {
+  if (!car.wakeLock) return;
+  try { await car.wakeLock.release(); } catch (e) { /* ignore */ }
+  car.wakeLock = null;
+}
+document.addEventListener("visibilitychange", function () {
+  if (car.active && !document.hidden && !car.wakeLock) requestCarWakeLock();
+});
+
+// ---- Session lifecycle ----
+function startCarSession() {
+  const eligible = carEligibleSentences();
+  if (eligible.length === 0) return;
+
+  let ordered = eligible.slice();
+  if (car.shuffle) {
+    for (let i = ordered.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = ordered[i]; ordered[i] = ordered[j]; ordered[j] = tmp;
+    }
+  }
+  car.queue = ordered.map(function (s) { return s.id; });
+  car.idx = 0;
+  car.repCount = 0;
+  car.paused = false;
+  car.active = true;
+
+  carSetupEl.style.display = "none";
+  carActiveEl.style.display = "flex";
+  document.body.classList.add("car-driving");
+  if (car.night) document.body.classList.add("car-night");
+
+  requestCarWakeLock();
+  renderCarCard();
+  playCarCurrent();
+}
+
+function exitCarSession() {
+  car.active = false;
+  car.paused = false;
+  if (car.pendingTimer) { clearTimeout(car.pendingTimer); car.pendingTimer = null; }
+  try { audioEl.pause(); } catch (e) { /* ignore */ }
+  releaseCarWakeLock();
+  carActiveEl.style.display = "none";
+  carSetupEl.style.display = "block";
+  document.body.classList.remove("car-driving");
+  document.body.classList.remove("car-night");
+  updateCarSetupSummary();
+}
+
+function renderCarCard() {
+  const id = car.queue[car.idx];
+  const s = getSentenceById(id);
+  if (!s) { exitCarSession(); return; }
+  carEsEl.textContent = s.es || "—";
+  carDeEl.textContent = s.de || "";
+  carCatsEl.innerHTML = "";
+  (s.cats || []).forEach(function (catKey) {
+    const cat = DATA.categories.find(function (c) { return c.key === catKey; });
+    if (cat) {
+      const tag = document.createElement("span");
+      tag.className = "car-cat-tag";
+      tag.textContent = cat.label;
+      carCatsEl.appendChild(tag);
+    }
+  });
+  carCounterEl.textContent = "KARTE " + (car.idx + 1) + " / " + car.queue.length + " · WDH " + (car.repCount + 1) + " / " + car.repeats;
+  const pct = ((car.idx * car.repeats + car.repCount) / (car.queue.length * car.repeats)) * 100;
+  carProgressFillEl.style.width = pct + "%";
+  carStatusEl.textContent = "";
+}
+
+function playCarCurrent() {
+  if (!car.active || car.paused) return;
+  const id = car.queue[car.idx];
+  const s = getSentenceById(id);
+  if (!s) { exitCarSession(); return; }
+  const src = userAudioUrls[id] || s.audio;
+  if (!src) {
+    carStatusEl.textContent = "Kein Audio — überspringe…";
+    car.repCount = car.repeats - 1;
+    carAdvance(true);
+    return;
+  }
+  audioEl.src = src;
+  audioEl.playbackRate = 1.0;
+  audioEl.play().then(function () {
+    carPauseIcon.style.display = "block";
+    carPlayIcon.style.display = "none";
+    carStatusEl.textContent = "Spielt ab";
+  }).catch(function (err) {
+    console.error("Car play failed", err);
+    carStatusEl.textContent = "Audio-Fehler";
+    car.repCount = car.repeats - 1;
+    carAdvance(true);
+  });
+}
+
+function carPause() {
+  if (!car.active) return;
+  car.paused = true;
+  try { audioEl.pause(); } catch (e) { /* ignore */ }
+  if (car.pendingTimer) { clearTimeout(car.pendingTimer); car.pendingTimer = null; }
+  carPauseIcon.style.display = "none";
+  carPlayIcon.style.display = "block";
+  carStatusEl.textContent = "Pausiert";
+}
+
+function carResume() {
+  if (!car.active) return;
+  car.paused = false;
+  if (audioEl.src && audioEl.paused && audioEl.currentTime > 0 && audioEl.currentTime < (audioEl.duration || Infinity)) {
+    audioEl.play().then(function () {
+      carPauseIcon.style.display = "block";
+      carPlayIcon.style.display = "none";
+      carStatusEl.textContent = "Spielt ab";
+    }).catch(function () { playCarCurrent(); });
+  } else {
+    playCarCurrent();
+  }
+}
+
+function carAdvance(skipPause) {
+  if (!car.active) return;
+  car.repCount++;
+  if (car.repCount < car.repeats) {
+    carStatusEl.textContent = "Shadow-Pause…";
+    car.pendingTimer = setTimeout(function () {
+      car.pendingTimer = null;
+      if (car.active && !car.paused) {
+        renderCarCard();
+        playCarCurrent();
+      }
+    }, skipPause ? 0 : car.shadowPause * 1000);
+  } else {
+    car.repCount = 0;
+    car.idx++;
+    if (car.idx >= car.queue.length) {
+      if (car.loop) {
+        if (car.shuffle) {
+          for (let i = car.queue.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = car.queue[i]; car.queue[i] = car.queue[j]; car.queue[j] = tmp;
+          }
+        }
+        car.idx = 0;
+      } else {
+        carStatusEl.textContent = "Fertig — gut gemacht!";
+        car.pendingTimer = setTimeout(function () {
+          car.pendingTimer = null;
+          exitCarSession();
+        }, 2000);
+        return;
+      }
+    }
+    carStatusEl.textContent = "Nächste Karte…";
+    car.pendingTimer = setTimeout(function () {
+      car.pendingTimer = null;
+      if (car.active && !car.paused) {
+        renderCarCard();
+        playCarCurrent();
+      }
+    }, skipPause ? 0 : car.sentencePause * 1000);
+  }
+}
+
+function carSkipNext() {
+  if (!car.active) return;
+  if (car.pendingTimer) { clearTimeout(car.pendingTimer); car.pendingTimer = null; }
+  try { audioEl.pause(); } catch (e) { /* ignore */ }
+  car.repCount = car.repeats - 1;
+  carAdvance(true);
+}
+
+function carSkipPrev() {
+  if (!car.active) return;
+  if (car.pendingTimer) { clearTimeout(car.pendingTimer); car.pendingTimer = null; }
+  try { audioEl.pause(); } catch (e) { /* ignore */ }
+  car.repCount = 0;
+  car.idx = (car.idx - 1 + car.queue.length) % car.queue.length;
+  renderCarCard();
+  if (!car.paused) playCarCurrent();
+}
+
+audioEl.addEventListener("ended", function () {
+  if (!car.active || car.paused) return;
+  carAdvance(false);
+});
+
+carStartBtn.onclick = startCarSession;
+carCloseBtn.onclick = function () {
+  if (car.idx > 0) {
+    if (!confirm("Auto-Modus beenden?")) return;
+  }
+  exitCarSession();
+};
+carSettingsBtn.onclick = function () {
+  exitCarSession();
+  showToast("Einstellungen anpassen und neu starten.", 3000);
+};
+carPrevBtn.onclick = function (e) { e.stopPropagation(); carSkipPrev(); };
+carNextBtn.onclick = function (e) { e.stopPropagation(); carSkipNext(); };
+carPlayBtn.onclick = function (e) {
+  e.stopPropagation();
+  if (car.paused) carResume();
+  else carPause();
+};
+carStageEl.addEventListener("click", function () {
+  if (!car.active) return;
+  if (car.paused) carResume();
+  else carPause();
+});
+
+function setCarModeActive() {
+  state.mode = "car";
+  document.body.classList.add("car");
+  document.body.classList.remove("recall");
+  document.body.classList.remove("focus");
+  listenBtn.classList.remove("primary"); listenBtn.classList.add("secondary");
+  recallBtn.classList.remove("primary"); recallBtn.classList.add("secondary");
+  focusBtn.classList.remove("primary"); focusBtn.classList.add("secondary");
+  carBtn.classList.remove("secondary"); carBtn.classList.add("primary");
+  if (modeHint) modeHint.textContent = "Auto-Modus: konfiguriere die Session und drücke Start.";
+
+  if (car.active) {
+    carSetupEl.style.display = "none";
+    carActiveEl.style.display = "flex";
+    if (car.night) document.body.classList.add("car-night");
+  } else {
+    carSetupEl.style.display = "block";
+    carActiveEl.style.display = "none";
+    updateCarSetupSummary();
+  }
+}
+
+carBtn.onclick = setCarModeActive;
+
+const _origListenForCar = listenBtn.onclick;
+listenBtn.onclick = function () {
+  if (car.active) exitCarSession();
+  document.body.classList.remove("car");
+  document.body.classList.remove("car-night");
+  document.body.classList.remove("car-driving");
+  carBtn.classList.remove("primary"); carBtn.classList.add("secondary");
+  _origListenForCar.call(this);
+};
+const _origRecallForCar = recallBtn.onclick;
+recallBtn.onclick = function () {
+  if (car.active) exitCarSession();
+  document.body.classList.remove("car");
+  document.body.classList.remove("car-night");
+  document.body.classList.remove("car-driving");
+  carBtn.classList.remove("primary"); carBtn.classList.add("secondary");
+  _origRecallForCar.call(this);
+};
+const _origFocusForCar = focusBtn.onclick;
+focusBtn.onclick = function () {
+  if (car.active) exitCarSession();
+  document.body.classList.remove("car");
+  document.body.classList.remove("car-night");
+  document.body.classList.remove("car-driving");
+  carBtn.classList.remove("primary"); carBtn.classList.add("secondary");
+  _origFocusForCar.call(this);
+};
+
+buildCarCatPicker();
+buildCarRatingPicker();
+wireCarSetup();
+updateCarSetupSummary();
 
 // Auth comes last so all DOM handlers are wired up first
 initAuth();
