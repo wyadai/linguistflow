@@ -1,29 +1,30 @@
 {
   "name": "LinguistFlow",
   "short_name": "LinguistFlow",
-  "description": "Language Mastery – Spanisch (Guatemala-Variante)",
+  "description": "Language Mastery — Sprachen-Shadowing-App",
   "lang": "de",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "portrait-primary",
   "background_color": "#f8f9ff",
   "theme_color": "#091426",
+  "categories": ["education"],
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "icon-512.png",
+      "src": "icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "icon-512.png",
+      "src": "icons/icon-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

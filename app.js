@@ -1635,6 +1635,9 @@ function play() {
     playIcon.style.display = "none";
     pauseIcon.style.display = "block";
     highlightCurrent();
+    // PWA: update lockscreen/Bluetooth metadata so the OS shows the
+    // current sentence and reacts to media-key presses.
+    if (typeof updateMediaSessionMetadata === "function") updateMediaSessionMetadata(s);
   }).catch(function (err) { console.error("Play failed", err); });
 }
 function pause() {
@@ -1642,6 +1645,9 @@ function pause() {
   state.isPlaying = false;
   playIcon.style.display = "block";
   pauseIcon.style.display = "none";
+  if ("mediaSession" in navigator) {
+    try { navigator.mediaSession.playbackState = "paused"; } catch (e) {}
+  }
 }
 function next() {
   if (state.filteredIds.length === 0) return;
@@ -2486,6 +2492,81 @@ _audioDbReady = initAudioDB().then(function () {
   buildUserSentencesList();
   updateGenerateAllAudioBtn();
 });
+
+// =====================================================================
+// PWA · Service Worker registration
+// =====================================================================
+// Cache app shell + audios for offline use. The sw.js file handles all the
+// caching strategy details. We bump VERSION inside sw.js whenever app code
+// changes meaningfully — the activate handler clears stale caches.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").then(function (reg) {
+      // When a new SW is found, ping it to skip waiting so the user gets the
+      // update on next reload rather than after closing all tabs.
+      reg.addEventListener("updatefound", function () {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener("statechange", function () {
+          if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+            newWorker.postMessage({ type: "SKIP_WAITING" });
+          }
+        });
+      });
+    }).catch(function (err) {
+      console.warn("[SW] registration failed:", err);
+    });
+  });
+}
+
+// =====================================================================
+// PWA · Media Session API — Lockscreen / Bluetooth controls
+// =====================================================================
+// Lets the OS show the current sentence on the lockscreen and respond to
+// headphone / Bluetooth play/pause/skip buttons. Setup is one-time; metadata
+// is refreshed on every play() via updateMediaSessionMetadata().
+function setupMediaSession() {
+  if (!("mediaSession" in navigator)) return;
+  try {
+    navigator.mediaSession.setActionHandler("play", function () {
+      // Resume if we have an existing track, otherwise start the current one
+      if (audioEl && audioEl.src && audioEl.paused) {
+        audioEl.play().then(function () {
+          state.isPlaying = true;
+          if (playIcon) playIcon.style.display = "none";
+          if (pauseIcon) pauseIcon.style.display = "block";
+        }).catch(function (e) { console.warn("[MS] resume failed:", e); });
+      } else {
+        play();
+      }
+    });
+    navigator.mediaSession.setActionHandler("pause", function () { pause(); });
+    navigator.mediaSession.setActionHandler("nexttrack", function () { next(); });
+    navigator.mediaSession.setActionHandler("previoustrack", function () { prev(); });
+    // Explicitly disable seek (sentence-by-sentence, no scrubbing inside a clip)
+    try { navigator.mediaSession.setActionHandler("seekto", null); } catch (e) {}
+    try { navigator.mediaSession.setActionHandler("seekbackward", null); } catch (e) {}
+    try { navigator.mediaSession.setActionHandler("seekforward", null); } catch (e) {}
+  } catch (e) {
+    console.warn("[MS] setup failed:", e);
+  }
+}
+function updateMediaSessionMetadata(s) {
+  if (!("mediaSession" in navigator) || !s) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: s.es || s.de || "LinguistFlow",
+      artist: s.de || "",
+      album: "LinguistFlow · Spanisch (Guatemala)",
+      artwork: [
+        { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
+        { src: "icons/icon-512.png", sizes: "512x512", type: "image/png" },
+      ],
+    });
+    navigator.mediaSession.playbackState = "playing";
+  } catch (e) { /* MediaMetadata not supported — ignore */ }
+}
+setupMediaSession();
 
 // =====================================================================
 // FOKUS-SESSION (third mode: Anki-style single card practice)
@@ -3689,6 +3770,7 @@ carBtn.onclick = function () {
 };
 
 // Keyboard shortcuts inside intro session: V = Verstanden, N = Nochmal, Space = Play
+// (Intro keydown handler — runs only when intro session is active.)
 document.addEventListener("keydown", function (e) {
   if (state.mode !== "intro" || !intro.active) return;
   // Skip if user is typing in an input
