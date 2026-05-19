@@ -336,7 +336,6 @@ function openNewSentencePage() {
   document.body.classList.remove("saetze");
   document.body.classList.remove("stats");
   document.body.classList.add("new-sentence");
-  if (sideNewSentenceLink) sideNewSentenceLink.classList.add("active");
   buildNsCatPickers();
   renderNsRecent();
   updateNsMultiCount();
@@ -351,7 +350,6 @@ function openNewSentencePage() {
 
 function closeNewSentencePage() {
   document.body.classList.remove("new-sentence");
-  if (sideNewSentenceLink) sideNewSentenceLink.classList.remove("active");
   // Restore the prior mode
   if (_modeBeforeNewSentence === "focus" && typeof setFocusModeActive === "function") {
     setFocusModeActive();
@@ -1940,16 +1938,22 @@ function updateIntroModeBtn() {
   // Mirror to sidebar section badge (may not exist yet on first call during boot)
   const sectionBadge = document.getElementById("intro-section-count");
   if (sectionBadge) sectionBadge.textContent = n > 0 ? String(n) : "";
+  // Mirror to new sidebar nav-link badge (Praxis-Sektion)
+  const sideBadge = document.getElementById("side-intro-count");
+  if (sideBadge) sideBadge.textContent = n > 0 ? String(n) : "";
 }
 
 function updateRecallModeBtn() {
-  if (!recallCountBadge) return;
   const n = dueCount();
-  if (n === 0) {
-    recallCountBadge.style.display = "none";
-  } else {
-    recallCountBadge.style.display = "inline-flex";
-    recallCountBadge.textContent = String(n);
+  // Old (hidden) recall-mode-btn badge — kept for backward compat
+  if (recallCountBadge) {
+    if (n === 0) recallCountBadge.style.display = "none";
+    else { recallCountBadge.style.display = "inline-flex"; recallCountBadge.textContent = String(n); }
+  }
+  // New sidebar Fokus-Session badge — primärer Recall-Pfad seit Sidebar-Restructure
+  const sideFocusBadge = document.getElementById("side-focus-count");
+  if (sideFocusBadge) {
+    sideFocusBadge.textContent = n > 0 ? String(n) : "";
   }
 }
 
@@ -2110,6 +2114,26 @@ function renderSaetzePage() {
 
   const filter = state.saetzeFilter || "translated";
   const list = getSaetzeForFilter(filter);
+
+  // Translate-all banner: nur im Pending-Filter UND wenn pending-Sätze da sind.
+  const banner = document.getElementById("saetze-translate-banner");
+  const bannerBtn = document.getElementById("saetze-translate-btn");
+  const bannerLabel = document.getElementById("saetze-translate-btn-label");
+  const bannerSub = document.getElementById("saetze-translate-banner-sub");
+  if (banner) {
+    const pendingCount = state.userSentences.filter(function (s) { return !s.archived && s.pending; }).length;
+    if (filter === "pending" && pendingCount > 0) {
+      banner.style.display = "flex";
+      if (bannerLabel) bannerLabel.textContent = "Alle übersetzen (" + pendingCount + ")";
+      if (bannerSub) {
+        if (state.apiKey) bannerSub.textContent = "Claude übersetzt alle " + pendingCount + " Sätze in einem Schwung.";
+        else bannerSub.textContent = "Anthropic API Key fehlt — setze ihn in Einstellungen.";
+      }
+      if (bannerBtn) bannerBtn.disabled = !state.apiKey;
+    } else {
+      banner.style.display = "none";
+    }
+  }
 
   // Update filter-tab active state every render (handles deep-link / external state-set).
   if (saetzeFilterEl) {
@@ -2360,14 +2384,12 @@ function openSaetzePage() {
   document.body.classList.remove("new-sentence");  // mutual exclusion
   document.body.classList.remove("stats");
   document.body.classList.add("saetze");
-  if (sideSaetzeLink) sideSaetzeLink.classList.add("active");
   closeSidePanel();
   renderSaetzePage();
   window.scrollTo({ top: 0, behavior: "instant" });
 }
 function closeSaetzePage() {
   document.body.classList.remove("saetze");
-  if (sideSaetzeLink) sideSaetzeLink.classList.remove("active");
   if (_modeBeforeSaetze === "focus" && typeof setFocusModeActive === "function") {
     setFocusModeActive();
   } else if (_modeBeforeSaetze === "recall") {
@@ -2377,6 +2399,16 @@ function closeSaetzePage() {
 }
 if (sideSaetzeLink) sideSaetzeLink.onclick = function () { openSaetzePage(); };
 if (saetzeBackBtn) saetzeBackBtn.onclick = function () { closeSaetzePage(); };
+
+// Translate-all-Banner-Button auf der Saetze-Page (Pending-Filter)
+const saetzeTranslateBtn = document.getElementById("saetze-translate-btn");
+if (saetzeTranslateBtn) {
+  saetzeTranslateBtn.onclick = function () {
+    // Reuse die existierende Translate-Pipeline aus der alten Sidebar-Sektion
+    if (typeof translateViaAPI === "function") translateViaAPI();
+    else if (translateApiBtn) translateApiBtn.click();
+  };
+}
 
 // Back-compat shim: anything in this file that still calls the old function
 // goes through the new one (call-sites are renamed below in the same diff).
@@ -2531,11 +2563,23 @@ function renderStatsPage() {
   }
 }
 
-// CTA: "Recall starten" → schließt Stats-Page und springt in Recall-Mode
+// CTA: "Fokus-Session starten" → schließt Stats-Page und öffnet Fokus
+// (Single-Card-Variante des SRS-Recalls, der primäre Recall-Weg seit Phase A).
 if (statsRecallCtaBtn) {
   statsRecallCtaBtn.onclick = function () {
     closeStatsPage();
-    // recallBtn.onclick wechselt Mode + applyFilter
+    if (typeof setFocusModeActive === "function") setFocusModeActive();
+    else if (focusBtn) focusBtn.click();
+  };
+}
+
+// Secondary CTA: "Als Liste durchgehen" → öffnet den Active-Recall-List-View.
+// Der Modus hat keinen Sidebar-Eintrag mehr, ist aber per Stats erreichbar
+// für Power-User die lieber scrollen statt durch Einzelkarten zu klicken.
+const statsRecallListCtaBtn = document.getElementById("stats-recall-list-cta");
+if (statsRecallListCtaBtn) {
+  statsRecallListCtaBtn.onclick = function () {
+    closeStatsPage();
     if (recallBtn) recallBtn.click();
   };
 }
@@ -2551,14 +2595,12 @@ function openStatsPage() {
   document.body.classList.remove("new-sentence");
   document.body.classList.remove("saetze");
   document.body.classList.add("stats");
-  if (sideStatsLink) sideStatsLink.classList.add("active");
   closeSidePanel();
   renderStatsPage();
   window.scrollTo({ top: 0, behavior: "instant" });
 }
 function closeStatsPage() {
   document.body.classList.remove("stats");
-  if (sideStatsLink) sideStatsLink.classList.remove("active");
   if (_modeBeforeStats === "focus" && typeof setFocusModeActive === "function") {
     setFocusModeActive();
   } else if (_modeBeforeStats === "recall") {
@@ -2568,6 +2610,81 @@ function closeStatsPage() {
 }
 if (sideStatsLink) sideStatsLink.onclick = function () { openStatsPage(); };
 if (statsBackBtn) statsBackBtn.onclick = function () { closeStatsPage(); };
+
+// =====================================================================
+// EINSTELLUNGEN-PAGE (Sidebar-Restructure Mai 2026)
+// =====================================================================
+const sideSettingsLink = document.getElementById("side-settings-link");
+const settingsPage = document.getElementById("settings-page");
+const settingsBackBtn = document.getElementById("settings-back-btn");
+
+let _modeBeforeSettings = null;
+function openSettingsPage() {
+  _modeBeforeSettings = document.body.classList.contains("focus")
+    ? "focus"
+    : (document.body.classList.contains("recall") ? "recall" : "listen");
+  document.body.classList.remove("focus");
+  document.body.classList.remove("recall");
+  document.body.classList.remove("new-sentence");
+  document.body.classList.remove("saetze");
+  document.body.classList.remove("stats");
+  document.body.classList.add("settings");
+  closeSidePanel();
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+function closeSettingsPage() {
+  document.body.classList.remove("settings");
+  if (_modeBeforeSettings === "focus" && typeof setFocusModeActive === "function") {
+    setFocusModeActive();
+  } else if (_modeBeforeSettings === "recall") {
+    document.body.classList.add("recall");
+  }
+  _modeBeforeSettings = null;
+}
+if (sideSettingsLink) sideSettingsLink.onclick = function () { openSettingsPage(); };
+if (settingsBackBtn) settingsBackBtn.onclick = function () { closeSettingsPage(); };
+
+// =====================================================================
+// PRAXIS-MODI in der Sidebar (Sidebar-Restructure Mai 2026)
+// =====================================================================
+// Die alten Mode-Buttons leben weiter im DOM (versteckt via CSS), weil ihre
+// onclick-Handler durch Wrapper-Funktionen ergänzt werden (intro, focus, car).
+// Die Sidebar-Links rufen sie programmatisch via .click() auf — damit alle
+// Wrapper sauber durchlaufen, kein duplizierter Cleanup-Code nötig.
+
+const sideIntroLink = document.getElementById("side-intro-link");
+const sideCarLink = document.getElementById("side-car-link");
+const sideFocusLink = document.getElementById("side-focus-link");
+const sideIntroCountBadge = document.getElementById("side-intro-count");
+const sideFocusCountBadge = document.getElementById("side-focus-count");
+
+function _closeAllPageOverlays() {
+  // Wenn der User aus Saetze/Stats/Settings/New-Sentence in einen Praxis-Modus
+  // wechselt, müssen die Page-Klassen weg.
+  document.body.classList.remove("saetze");
+  document.body.classList.remove("stats");
+  document.body.classList.remove("settings");
+  document.body.classList.remove("new-sentence");
+}
+
+if (sideIntroLink) {
+  sideIntroLink.onclick = function () {
+    _closeAllPageOverlays();
+    if (introBtn && !introBtn.disabled) introBtn.click();
+  };
+}
+if (sideCarLink) {
+  sideCarLink.onclick = function () {
+    _closeAllPageOverlays();
+    if (carBtn) carBtn.click();
+  };
+}
+if (sideFocusLink) {
+  sideFocusLink.onclick = function () {
+    _closeAllPageOverlays();
+    if (focusBtn) focusBtn.click();
+  };
+}
 
 
 // Main sort handler
@@ -3185,10 +3302,15 @@ function wireFocusOrderPicker() {
 
 // Filter sentences according to the setup config (no count/order yet — that's done at start)
 function focusEligibleSentences() {
+  // SRS Phase A: Fokus-Modus ist die Single-Card-Variante von Active Recall.
+  // Basis-Queue kommt aus recallQueue() (heute-fällig + Smart Fallback),
+  // dann Cat-Filter und Rating-Filter (optional, falls User die explizit setzt).
+  const dueIds = new Set(recallQueue(5));
   return allSentences().filter(function (s) {
     if (s.archived) return false;
-    if (s.pending) return false;          // no point practicing untranslated
-    if (stageOf(s.id) !== "active") return false;  // intro/backlog excluded
+    if (s.pending) return false;
+    if (stageOf(s.id) !== "active") return false;
+    if (!dueIds.has(s.id)) return false;  // <-- die wichtige Zeile: nur SRS-Queue
     if (focus.cats.size > 0 && !s.cats.some(function (c) { return focus.cats.has(c); })) return false;
     if (focus.ratings.size > 0) {
       let match = false;

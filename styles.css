@@ -492,7 +492,18 @@ body {
   width: 100%;
 }
 
-/* Stats row (new) */
+/* Stats row, progress and mode-buttons werden seit dem Sidebar-Restructure
+   permanent ausgeblendet — die Inhalte leben jetzt auf der Statistiken-Page
+   bzw. als Sidebar-Praxis-Links. DOM-Elemente bleiben für JS-Refs erhalten. */
+.stats-row,
+.progress-row,
+.progress-bar,
+.mode-buttons,
+.hint {
+  display: none !important;
+}
+
+/* Stats row (original — kept as fallback if ever re-enabled) */
 .stats-row {
   display: flex;
   gap: 12px;
@@ -1981,11 +1992,141 @@ body.new-sentence .new-sentence-page { display: block; }
   margin-left: auto;
   color: var(--outline);
 }
-.side-section-link.active {
+.side-section-link.active,
+body.intro #side-intro-link,
+body.car #side-car-link,
+body.focus #side-focus-link,
+body.new-sentence #side-new-sentence-link,
+body.saetze #side-saetze-link,
+body.stats #side-stats-link,
+body.settings #side-settings-link {
   background: var(--surface-container);
   color: var(--primary);
 }
-.side-section-link.active .side-sum-icon { color: var(--primary); }
+.side-section-link.active .side-sum-icon,
+body.intro #side-intro-link .side-sum-icon,
+body.car #side-car-link .side-sum-icon,
+body.focus #side-focus-link .side-sum-icon,
+body.new-sentence #side-new-sentence-link .side-sum-icon,
+body.saetze #side-saetze-link .side-sum-icon,
+body.stats #side-stats-link .side-sum-icon,
+body.settings #side-settings-link .side-sum-icon { color: var(--primary); }
+/* Badges innerhalb von side-section-link rechts-ankern (Counter für Praxis-Modi) */
+.side-section-link .side-badge { margin-left: auto; }
+
+/* Sektionen-Header und Trenner (neue Sidebar-Struktur Mai 2026) */
+.side-section-label {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--outline);
+  padding: 14px 14px 6px;
+  margin-top: 4px;
+}
+.side-section-label:first-child { margin-top: 0; padding-top: 4px; }
+.side-section-divider {
+  height: 1px; background: var(--outline-variant);
+  margin: 10px 10px;
+}
+
+/* =====================================================================
+   EINSTELLUNGEN — eigene Seite
+   ===================================================================== */
+body.settings .stats-row,
+body.settings .progress-row,
+body.settings .progress-bar,
+body.settings .mode-buttons,
+body.settings .hint,
+body.settings .rating-filter,
+body.settings .toolbar,
+body.settings #cards,
+body.settings .no-results,
+body.settings .focus-session,
+body.settings .car-session,
+body.settings .intro-session,
+body.settings .player,
+body.settings .fab { display: none !important; }
+
+.settings-page { display: none; }
+body.settings .settings-page { display: block; margin-top: 4px; max-width: 720px; }
+
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.settings-back-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px 8px 10px;
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-lowest);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px; font-weight: 600;
+  color: var(--on-surface);
+  flex-shrink: 0;
+}
+.settings-back-btn:hover { background: var(--surface-high); border-color: var(--primary); }
+.settings-header-title { flex: 1; min-width: 0; }
+.settings-header-title h2 {
+  margin: 0;
+  font-size: 26px; font-weight: 700;
+  color: var(--primary);
+  letter-spacing: -0.01em;
+}
+.settings-header-title p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--secondary);
+  line-height: 1.5;
+}
+
+.settings-section { margin-bottom: 28px; }
+.settings-section-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 700;
+  color: var(--on-surface);
+  margin: 0 0 12px;
+  letter-spacing: 0.02em;
+}
+.settings-section-title .material-symbols-outlined {
+  color: var(--secondary);
+}
+.settings-card {
+  background: var(--surface-lowest); border-radius: var(--radius);
+  padding: 14px 16px;
+  border: 1px solid var(--outline-variant);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.settings-card input[type="password"],
+.settings-card input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+  background: var(--surface-low);
+  font-family: inherit; font-size: 13px;
+}
+.settings-card input:focus {
+  outline: none; border-color: var(--primary);
+  background: var(--surface-lowest);
+}
+.settings-hint {
+  display: block;
+  margin: 8px 4px 0;
+  font-size: 11px; color: var(--secondary);
+  line-height: 1.5;
+}
+.settings-section .manual-block {
+  margin-top: 12px;
+}
+
+@media (max-width: 480px) {
+  .settings-back-label { display: none; }
+  .settings-header { gap: 10px; }
+  .settings-header-title h2 { font-size: 22px; }
+}
 
 /* Header */
 .ns-header {
@@ -2691,6 +2832,51 @@ body.saetze .saetze-page { display: block; }
   cursor: not-allowed;
 }
 
+/* Translate-all banner — sichtbar im Pending-Filter wenn ausstehende Sätze da sind */
+.saetze-translate-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--warning-soft);
+  border: 1px solid rgba(184, 134, 42, 0.3);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.saetze-translate-banner-text {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--warning-ink);
+  flex: 1; min-width: 0;
+}
+.saetze-translate-banner-text .material-symbols-outlined {
+  color: var(--warning);
+  flex-shrink: 0;
+}
+.saetze-translate-banner-title {
+  font-size: 14px; font-weight: 600;
+  color: var(--warning-ink);
+}
+.saetze-translate-banner-sub {
+  font-size: 12px; color: var(--warning-ink);
+  opacity: 0.85;
+  margin-top: 1px;
+}
+.saetze-translate-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--warning); color: var(--on-primary);
+  border: none;
+  padding: 9px 16px;
+  border-radius: var(--radius-pill);
+  font-family: inherit;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.saetze-translate-btn:hover { background: var(--warning-ink); }
+.saetze-translate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* Empty state */
 .saetze-empty {
   text-align: center;
@@ -2872,6 +3058,21 @@ body.stats .stats-page { display: block; margin-top: 4px; }
   font-family: inherit;
 }
 .stats-cta-btn:hover { background: var(--primary-container); }
+
+/* Secondary CTA in der Heute-fällig-Card — Active-Recall-List-View als Alternative */
+.stats-cta-secondary {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: transparent; color: var(--secondary);
+  border: 1px solid var(--outline-variant);
+  padding: 8px 14px; border-radius: var(--radius-pill);
+  font-weight: 600; font-size: 12px; cursor: pointer;
+  font-family: inherit;
+}
+.stats-cta-secondary:hover {
+  background: var(--surface-low);
+  color: var(--on-surface);
+  border-color: var(--secondary);
+}
 
 /* Section-Title */
 .stats-section-title {
@@ -3618,6 +3819,15 @@ body.intro .intro-card-view { display: block; }
 @media (max-width: 480px) {
   .intro-es { font-size: 20px; }
   .intro-de { font-size: 16px; }
-  .intro-card { padding: 20px 18px 24px; }
-  .intro-play-btn { width: 44px; height: 44px; right: 12px; bottom: 12px; }
+  .intro-card { padding: 20px 18px 22px; }
+  /* Auf Mobile: Play-Button aus dem absolute-Layout raus und in den Flow,
+     damit er nie hinter / unter dem ES-Text liegt — vor allem bei längeren
+     spanischen Sätzen die über zwei Zeilen umbrechen. */
+  .intro-play-btn {
+    position: static;
+    align-self: flex-end;
+    width: 48px; height: 48px;
+    margin-top: 4px;
+  }
+  .intro-audio-hint { text-align: right; margin-top: -4px; }
 }

@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=phase3-stats">
+<link rel="stylesheet" href="styles.css?v=phase4-sidebar-polish">
 </head>
 <body>
   <!-- ===== Login screen (visible when not authenticated) ===== -->
@@ -54,107 +54,59 @@
     </div>
     <div class="side-panel-body">
 
+      <div class="side-section-label">Praxis</div>
+
+      <button class="side-section-link" id="side-intro-link">
+        <span class="side-sum-icon material-symbols-outlined">school</span>
+        Einführung
+        <span id="side-intro-count" class="side-badge"></span>
+      </button>
+
+      <button class="side-section-link" id="side-car-link">
+        <span class="side-sum-icon material-symbols-outlined">directions_car</span>
+        Auto-Modus
+      </button>
+
+      <button class="side-section-link" id="side-focus-link">
+        <span class="side-sum-icon material-symbols-outlined">target</span>
+        Fokus-Session
+        <span id="side-focus-count" class="side-badge"></span>
+      </button>
+
+      <div class="side-section-divider"></div>
+      <div class="side-section-label">Inhalt</div>
+
       <button class="side-section-link" id="side-new-sentence-link">
         <span class="side-sum-icon material-symbols-outlined">add_circle</span>
         Neuen Satz hinzufügen
-        <span class="material-symbols-outlined side-section-link-arrow" style="font-size:16px;">arrow_forward</span>
       </button>
 
       <button class="side-section-link" id="side-saetze-link">
         <span class="side-sum-icon material-symbols-outlined">edit_note</span>
         Meine Sätze
-        <span class="material-symbols-outlined side-section-link-arrow" style="font-size:16px;">arrow_forward</span>
       </button>
 
       <button class="side-section-link" id="side-stats-link">
         <span class="side-sum-icon material-symbols-outlined">bar_chart</span>
         Statistiken
-        <span class="material-symbols-outlined side-section-link-arrow" style="font-size:16px;">arrow_forward</span>
       </button>
 
-      <details class="side-section" id="translation-section">
-        <summary>
-          <span class="side-sum-icon material-symbols-outlined">translate</span>
-          Übersetzungen
-          <span id="pending-count" class="side-badge"></span>
-        </summary>
-        <div class="side-section-content">
-          <div class="api-block">
-            <div class="side-label">Anthropic API Key <span id="api-key-status" class="api-status"></span></div>
-            <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" />
-            <div class="api-actions">
-              <button class="side-btn" id="save-api-key-btn">Speichern</button>
-              <button class="side-btn" id="clear-api-key-btn">Löschen</button>
-            </div>
-            <small class="side-tiny">Wird nur lokal im Browser gespeichert. Bei öffentlichem Hosting Vorsicht: ein Angreifer mit Zugriff auf dein Gerät könnte den Key auslesen.</small>
-          </div>
+      <div class="side-section-divider"></div>
+      <div class="side-section-label">Konto</div>
 
-          <button class="side-btn primary" id="translate-api-btn">
-            <span id="translate-api-btn-text">Mit Claude API übersetzen</span>
-          </button>
+      <button class="side-section-link" id="side-settings-link">
+        <span class="side-sum-icon material-symbols-outlined">settings</span>
+        Einstellungen
+      </button>
 
-          <details class="manual-block">
-            <summary class="manual-summary">Manuell (über Claude-Chat)</summary>
-            <div class="side-hint-text">
-              <ol class="side-steps">
-                <li>"Prompt kopieren" klicken</li>
-                <li>Im Claude-Chat einfügen, Antwort kopieren</li>
-                <li>Hier einfügen, "Anwenden"</li>
-              </ol>
-            </div>
-            <button class="side-btn" id="copy-prompt-btn">Prompt kopieren</button>
-            <textarea id="paste-translations" placeholder="Antwort von Claude hier einfügen..." rows="4"></textarea>
-            <button class="side-btn" id="apply-translations-btn">Anwenden</button>
-          </details>
-        </div>
-      </details>
-
-      <details class="side-section" id="audio-section">
-        <summary>
-          <span class="side-sum-icon material-symbols-outlined">volume_up</span>
-          Audio (ElevenLabs)
-        </summary>
-        <div class="side-section-content">
-          <div class="api-block">
-            <div class="side-label">ElevenLabs API Key <span id="el-key-status" class="api-status"></span></div>
-            <input type="password" id="el-key-input" placeholder="sk_..." autocomplete="off" />
-            <div class="side-label" style="margin-top:6px;">Voice ID</div>
-            <input type="text" id="el-voice-input" placeholder="z.B. 21m00Tcm4TlvDq8ikWAM (Rachel)" autocomplete="off" />
-            <div class="api-actions">
-              <button class="side-btn" id="save-el-btn">Speichern</button>
-              <button class="side-btn" id="clear-el-btn">Löschen</button>
-            </div>
-            <small class="side-tiny">Voice-Bibliothek: <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener">elevenlabs.io/voice-library</a> — eine Stimme aussuchen, Voice-ID kopieren. Standard: Rachel (Free-Tier kompatibel). Achtung: Library-Voices brauchen Starter-Abo ($5/Mo).</small>
-          </div>
-
-          <button class="side-btn primary" id="generate-all-audio-btn">
-            <span id="generate-all-audio-text">Audios für alle generieren</span>
-          </button>
-          <small class="side-tiny">Generiert Audio für alle User-Sätze, die übersetzt sind und noch kein Audio haben.</small>
-        </div>
-      </details>
-
-      <details class="side-section" id="intro-section">
-        <summary>
-          <span class="side-sum-icon material-symbols-outlined">school</span>
-          Einführung
-          <span id="intro-section-count" class="side-badge"></span>
-        </summary>
-        <div class="side-section-content">
-          <div class="side-label">Kategorie in Einführung schieben</div>
-          <select id="intro-cat-select" class="us-sort">
-            <option value="">Kategorie wählen…</option>
-          </select>
-          <button class="side-btn primary" id="intro-send-cat-btn" disabled>
-            <span id="intro-send-cat-text">In Einführung schieben</span>
-          </button>
-          <small class="side-tiny">Alle Karten dieser Kategorie werden zurück in den Einführungs-Pool gesetzt (intro_count = 0). Bewertungen bleiben erhalten.</small>
-        </div>
-      </details>
-
-      <div class="side-section side-section-static">
-        <div class="side-section-title">Kategorien</div>
-        <div class="cat-filter" id="cat-filter"></div>
+      <!-- Hidden DOM elements that JS code still references for backward
+           compatibility. Forms are now visually inside the Settings page. -->
+      <div style="display:none;" aria-hidden="true">
+        <span id="pending-count" class="side-badge"></span>
+        <span id="api-key-status" class="api-status"></span>
+        <span id="el-key-status" class="api-status"></span>
+        <span id="intro-section-count" class="side-badge"></span>
+        <div id="cat-filter"></div>
       </div>
 
     </div>
@@ -310,7 +262,11 @@
             <small class="focus-setup-hint">Leer = alle Kategorien</small>
           </div>
 
-          <div class="focus-setup-block">
+          <!-- Bewertungs-Filter ist seit SRS Phase A obsolet: Fokus-Queue
+               kommt aus recallQueue() (heute-fällig + Smart Fallback), nicht
+               aus Rating-Filtern. DOM-Element bleibt für legacy JS-Refs in
+               focusEligibleSentences(); UI ist via display:none verborgen. -->
+          <div class="focus-setup-block" style="display:none;" aria-hidden="true">
             <div class="focus-setup-label">Bewertungen einbeziehen</div>
             <div class="focus-rating-picker" id="focus-rating-picker"></div>
           </div>
@@ -785,6 +741,21 @@
           </div>
         </div>
 
+        <!-- Translate-all banner — sichtbar nur im Pending-Filter wenn Sätze warten -->
+        <div class="saetze-translate-banner" id="saetze-translate-banner" style="display:none;">
+          <div class="saetze-translate-banner-text">
+            <span class="material-symbols-outlined" style="font-size:22px;">translate</span>
+            <div>
+              <div class="saetze-translate-banner-title" id="saetze-translate-banner-title">Ausstehende Sätze übersetzen</div>
+              <div class="saetze-translate-banner-sub" id="saetze-translate-banner-sub">Claude übersetzt alle in einem Schwung.</div>
+            </div>
+          </div>
+          <button class="saetze-translate-btn" id="saetze-translate-btn">
+            <span class="material-symbols-outlined" style="font-size:16px;">auto_awesome</span>
+            <span id="saetze-translate-btn-label">Alle übersetzen</span>
+          </button>
+        </div>
+
         <div class="saetze-list" id="saetze-list"></div>
 
         <div class="saetze-empty" id="saetze-empty" style="display:none;">
@@ -860,9 +831,13 @@
             <span class="stats-due-num" id="stats-today-num">0</span>
           </div>
           <div class="stats-card-footer">
+            <button class="stats-cta-secondary" id="stats-recall-list-cta" title="Als Liste durchgehen statt Einzelkarte">
+              <span class="material-symbols-outlined" style="font-size:14px;">list</span>
+              Als Liste durchgehen
+            </button>
             <button class="stats-cta-btn" id="stats-recall-cta">
               <span class="material-symbols-outlined" style="font-size:16px;">play_arrow</span>
-              Recall starten
+              Fokus-Session starten
             </button>
           </div>
         </div>
@@ -883,6 +858,86 @@
         <!-- Insel-Grid -->
         <h3 class="stats-section-title">Fortschritt pro Sprachinsel</h3>
         <div class="stats-inseln-grid" id="stats-inseln-grid"></div>
+
+      </div>
+
+      <!-- ===== Einstellungen (eigene Seite) ===== -->
+      <div class="settings-page" id="settings-page">
+
+        <div class="settings-header">
+          <button class="settings-back-btn" id="settings-back-btn" title="Zurück">
+            <span class="material-symbols-outlined" style="font-size:20px;">arrow_back</span>
+            <span class="settings-back-label">Zurück</span>
+          </button>
+          <div class="settings-header-title">
+            <h2>Einstellungen</h2>
+            <p>API-Keys, Voice, Wiedergabe-Defaults.</p>
+          </div>
+        </div>
+
+        <section class="settings-section">
+          <h3 class="settings-section-title">
+            <span class="material-symbols-outlined" style="font-size:20px;">translate</span>
+            Übersetzung (Anthropic)
+          </h3>
+          <div class="settings-card">
+            <div class="side-label">Anthropic API Key <span id="api-key-status" class="api-status"></span></div>
+            <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" />
+            <div class="api-actions">
+              <button class="side-btn" id="save-api-key-btn">Speichern</button>
+              <button class="side-btn" id="clear-api-key-btn">Löschen</button>
+            </div>
+            <small class="side-tiny">Wird nur lokal im Browser gespeichert. Bei öffentlichem Hosting Vorsicht: ein Angreifer mit Zugriff auf dein Gerät könnte den Key auslesen.</small>
+          </div>
+
+          <details class="manual-block">
+            <summary class="manual-summary">Manuell übersetzen (über Claude-Chat)</summary>
+            <div class="side-hint-text">
+              <ol class="side-steps">
+                <li>"Prompt kopieren" klicken</li>
+                <li>Im Claude-Chat einfügen, Antwort kopieren</li>
+                <li>Hier einfügen, "Anwenden"</li>
+              </ol>
+            </div>
+            <button class="side-btn" id="copy-prompt-btn">Prompt kopieren</button>
+            <textarea id="paste-translations" placeholder="Antwort von Claude hier einfügen..." rows="4"></textarea>
+            <button class="side-btn" id="apply-translations-btn">Anwenden</button>
+          </details>
+
+          <small class="settings-hint">Der „Alle übersetzen"-Knopf erscheint kontextuell auf der <em>Meine Sätze</em>-Seite, wenn ausstehende Sätze vorhanden sind.</small>
+        </section>
+
+        <section class="settings-section">
+          <h3 class="settings-section-title">
+            <span class="material-symbols-outlined" style="font-size:20px;">volume_up</span>
+            Audio (ElevenLabs)
+          </h3>
+          <div class="settings-card">
+            <div class="side-label">ElevenLabs API Key <span id="el-key-status" class="api-status"></span></div>
+            <input type="password" id="el-key-input" placeholder="sk_..." autocomplete="off" />
+            <div class="side-label" style="margin-top:10px;">Voice ID</div>
+            <input type="text" id="el-voice-input" placeholder="z.B. 21m00Tcm4TlvDq8ikWAM (Rachel)" autocomplete="off" />
+            <div class="api-actions">
+              <button class="side-btn" id="save-el-btn">Speichern</button>
+              <button class="side-btn" id="clear-el-btn">Löschen</button>
+            </div>
+            <small class="side-tiny">Voice-Bibliothek: <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener">elevenlabs.io/voice-library</a> — eine Stimme aussuchen, Voice-ID kopieren. Standard: Rachel (Free-Tier kompatibel). Library-Voices brauchen Starter-Abo ($5/Mo).</small>
+          </div>
+
+          <button class="side-btn primary" id="generate-all-audio-btn" style="margin-top:12px;">
+            <span id="generate-all-audio-text">Audios für alle generieren</span>
+          </button>
+          <small class="settings-hint">Generiert Audio für alle User-Sätze, die übersetzt sind und noch kein Audio haben.</small>
+        </section>
+
+        <!-- Hidden legacy elements still referenced by JS. UI ist entfernt,
+             aber die JS-Refs müssen bleiben, sonst crasht buildIntroCatSelect()
+             oder updatePendingBadge(). -->
+        <div style="display:none;" aria-hidden="true">
+          <select id="intro-cat-select" class="us-sort"><option value="">—</option></select>
+          <button id="intro-send-cat-btn" disabled><span id="intro-send-cat-text">—</span></button>
+          <button id="translate-api-btn"><span id="translate-api-btn-text">—</span></button>
+        </div>
 
       </div>
 
@@ -928,7 +983,7 @@
   <audio id="audio" preload="none"></audio>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-  <script src="data.js?v=phase3-stats"></script>
-  <script src="app.js?v=phase3-stats"></script>
+  <script src="data.js?v=phase4-sidebar-polish"></script>
+  <script src="app.js?v=phase4-sidebar-polish"></script>
 </body>
 </html>
