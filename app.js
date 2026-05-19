@@ -1987,6 +1987,9 @@ async function onLogin() {
   updateAutoplayUI();
   buildUserSentencesList();
   updatePendingBadge();
+  // Refresh the Einführung dropdown now that user_sentences + intro_counts are loaded
+  if (typeof buildIntroCatSelect === "function") buildIntroCatSelect();
+  if (typeof updateIntroModeBtn === "function") updateIntroModeBtn();
   if (mainSortEl) mainSortEl.value = state.mainSort;
   if (usSortEl) usSortEl.value = state.usSort;
   // Defeat any browser autofill that may have polluted the search box
