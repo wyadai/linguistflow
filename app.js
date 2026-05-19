@@ -34,6 +34,11 @@ const state = {
   // Recall queue automatically (so you can give them their first assessment).
   // Persisted in cloud under profiles.settings.card_state (parallel to intro_counts).
   cardState: loadJSON("hl_card_state", {}),
+  // Basis-Statistiken: pro-Tag-Aggregate. Counter werden in play/reveal/setRating
+  // inkrementiert. Format: { daily: { "YYYY-MM-DD": { plays, reveals, rated } },
+  // all_time: { longest_streak, first_active_date } }.
+  // Persisted in cloud under profiles.settings.stats.
+  stats: loadJSON("hl_stats", { daily: {}, all_time: {} }),
   mode: "listen",
   repeatCount: 0,
   revealed: new Set(),
@@ -152,7 +157,8 @@ function saveJSON(key, val) {
   else if (key === "hl_ratings" || key === "hl_mnemonics" ||
            key === "hl_shown_mnemonics" || key === "hl_autoplay" ||
            key === "hl_intro_counts" ||
-           key === "hl_card_state") queuePushProfile();
+           key === "hl_card_state" ||
+           key === "hl_stats") queuePushProfile();
 }
 
 // ===== Lifecycle helpers (Einführungs-Modus) =====
@@ -327,6 +333,8 @@ function openNewSentencePage() {
   // Make sure focus/recall body classes don't bleed into the page styles
   document.body.classList.remove("focus");
   document.body.classList.remove("recall");
+  document.body.classList.remove("saetze");
+  document.body.classList.remove("stats");
   document.body.classList.add("new-sentence");
   if (sideNewSentenceLink) sideNewSentenceLink.classList.add("active");
   buildNsCatPickers();
@@ -1091,8 +1099,12 @@ function setRating(id, value) {
   // SRS Phase A: jede Rating-Setzung scheduled die Karte neu.
   // Lapse-Regel ist brutal-simpel: das neue Intervall überschreibt den alten
   // due_at, egal wie weit die Karte vorher war. 1★ auf einer 30d-Karte = morgen.
-  if (value !== null) scheduleNext(id, value);
-  else clearCardState(id);
+  if (value !== null) {
+    scheduleNext(id, value);
+    incrementStat("rated");
+  } else {
+    clearCardState(id);
+  }
   buildRatingFilter();
   updateProgress();
   if (typeof updateRecallModeBtn === "function") updateRecallModeBtn();
@@ -1190,6 +1202,65 @@ function dueCount() {
     if (isDueToday(s.id)) n++;
   }
   return n;
+}
+
+// =====================================================================
+// Basis-Statistiken — Counter pro Tag
+// =====================================================================
+// Inkrementelle Aggregation pro Tag, gepuscht in profiles.settings.stats.
+// Granularität: nur Tages-Counter, keine Event-Logs. Reicht für Streak,
+// Heatmap und Wochenzahlen.
+
+function ensureStatsDay(date) {
+  if (!state.stats.daily) state.stats.daily = {};
+  if (!state.stats.all_time) state.stats.all_time = {};
+  if (!state.stats.daily[date]) state.stats.daily[date] = { plays: 0, reveals: 0, rated: 0 };
+  if (!state.stats.all_time.first_active_date) state.stats.all_time.first_active_date = date;
+  return state.stats.daily[date];
+}
+
+function incrementStat(key, amount) {
+  if (typeof amount !== "number") amount = 1;
+  const today = isoToday();
+  const day = ensureStatsDay(today);
+  if (typeof day[key] !== "number") day[key] = 0;
+  day[key] += amount;
+  // Update longest_streak periodisch (nicht bei jedem Inc — nur wenn Reveal oder
+  // Rated dazukommt, weil das die einzigen Wege sind den Streak zu starten/halten)
+  if (key !== "plays") {
+    const cur = computeStreak();
+    if (cur > (state.stats.all_time.longest_streak || 0)) {
+      state.stats.all_time.longest_streak = cur;
+    }
+  }
+  saveJSON("hl_stats", state.stats);
+}
+
+function dateKeyFromDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return y + "-" + m + "-" + day;
+}
+
+// Streak = aufeinanderfolgende Tage ab heute rückwärts mit irgendeiner Aktivität
+// (plays >= 1 ODER reveals >= 1 ODER rated >= 1). Heute zählt erst, sobald es eine
+// Aktivität gibt — sonst startet der Streak bei gestern.
+function computeStreak() {
+  if (!state.stats.daily) return 0;
+  let streak = 0;
+  const today = new Date();
+  for (let offset = 0; offset < 400; offset++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - offset);
+    const dateKey = dateKeyFromDate(d);
+    const day = state.stats.daily[dateKey];
+    const active = day && (day.plays >= 1 || day.reveals >= 1 || day.rated >= 1);
+    if (active) streak++;
+    else if (offset === 0) continue; // Heute leer = noch nicht aktiv, weiter rückwärts
+    else break;
+  }
+  return streak;
 }
 
 // Lokale Migration: wenn cardState leer aber ratings vorhanden, rebuilden.
@@ -1774,12 +1845,15 @@ function jumpToAndPlay(id) {
   play();
 }
 function revealCard(id) {
+  const wasRevealed = state.revealed.has(id);
   state.revealed.add(id);
   const idx = state.filteredIds.indexOf(id);
   if (idx !== -1) state.currentIdx = idx;
   const card = document.querySelector('.card[data-id="' + id + '"]');
   if (card) card.classList.add("revealed");
   updatePlayer();
+  // Stats: nur das erste Reveal pro Karte pro Session zählen
+  if (!wasRevealed) incrementStat("reveals");
 }
 function revealCurrent() {
   if (state.filteredIds.length === 0) return;
@@ -1804,6 +1878,7 @@ function play() {
     // PWA: update lockscreen/Bluetooth metadata so the OS shows the
     // current sentence and reacts to media-key presses.
     if (typeof updateMediaSessionMetadata === "function") updateMediaSessionMetadata(s);
+    incrementStat("plays");
   }).catch(function (err) { console.error("Play failed", err); });
 }
 function pause() {
@@ -2283,6 +2358,7 @@ function openSaetzePage() {
   document.body.classList.remove("focus");
   document.body.classList.remove("recall");
   document.body.classList.remove("new-sentence");  // mutual exclusion
+  document.body.classList.remove("stats");
   document.body.classList.add("saetze");
   if (sideSaetzeLink) sideSaetzeLink.classList.add("active");
   closeSidePanel();
@@ -2305,6 +2381,193 @@ if (saetzeBackBtn) saetzeBackBtn.onclick = function () { closeSaetzePage(); };
 // Back-compat shim: anything in this file that still calls the old function
 // goes through the new one (call-sites are renamed below in the same diff).
 function buildUserSentencesList() { renderSaetzePage(); }
+
+// =====================================================================
+// STATISTIKEN — eigene Page (Basis-Phase)
+// =====================================================================
+// Lebt parallel zur Meine-Sätze-Page als body.stats-View. Aggregate kommen
+// aus state.stats (daily counters + all_time). Streak wird live berechnet.
+
+const sideStatsLink = document.getElementById("side-stats-link");
+const statsPage = document.getElementById("stats-page");
+const statsBackBtn = document.getElementById("stats-back-btn");
+const statsStreakValueEl = document.getElementById("stats-streak-value");
+const statsPlaysTodayEl = document.getElementById("stats-plays-today");
+const statsLearnedEl = document.getElementById("stats-learned");
+const statsOverdueNumEl = document.getElementById("stats-overdue-num");
+const statsTodayNumEl = document.getElementById("stats-today-num");
+const statsRecallCtaBtn = document.getElementById("stats-recall-cta");
+const statsHeatmapEl = document.getElementById("stats-heatmap");
+const statsLegendScaleEl = document.getElementById("stats-legend-scale");
+const statsInselnGridEl = document.getElementById("stats-inseln-grid");
+
+// 5-stufige Heatmap-Skala (heller → dunkler). Erst surface-low, dann
+// drei Blau-Stufen, dann --primary (slate). Mirrored im Legend-Marker.
+const HEATMAP_COLORS = [
+  "var(--surface-low)",        // 0
+  "#b5d4f4",                   // 1
+  "#85b7eb",                   // 2
+  "#378add",                   // 3
+  "var(--primary)",            // 4 (höchste Stufe)
+];
+
+function heatmapBucket(plays) {
+  // 0 Plays = 0, 1-9 = 1, 10-29 = 2, 30-69 = 3, 70+ = 4
+  if (!plays || plays < 1) return 0;
+  if (plays < 10) return 1;
+  if (plays < 30) return 2;
+  if (plays < 70) return 3;
+  return 4;
+}
+
+function dateKeyOffset(daysAgo) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return dateKeyFromDate(d);
+}
+
+function renderStatsPage() {
+  if (!statsPage) return;
+
+  // === Streak-Bar ===
+  if (statsStreakValueEl) statsStreakValueEl.textContent = computeStreak();
+  const today = isoToday();
+  const todayStats = (state.stats.daily && state.stats.daily[today]) || { plays: 0, reveals: 0, rated: 0 };
+  if (statsPlaysTodayEl) statsPlaysTodayEl.textContent = todayStats.plays || 0;
+  let learned = 0;
+  for (const id in state.ratings) if (state.ratings[id] === "learned") learned++;
+  if (statsLearnedEl) {
+    const total = allSentences().filter(function (s) { return !s.archived && stageOf(s.id) === "active"; }).length;
+    statsLearnedEl.textContent = learned + " / " + total;
+  }
+
+  // === Heute fällig ===
+  const todayDate = isoToday();
+  let overdue = 0;
+  let dueToday = 0;
+  for (const s of allSentences()) {
+    if (s.archived || s.pending) continue;
+    if (stageOf(s.id) !== "active") continue;
+    const cs = state.cardState[s.id];
+    if (!cs || !cs.due_at) continue; // unbewertete Karten zählen nicht in den Counter
+    if (cs.due_at < todayDate) overdue++;
+    else if (cs.due_at === todayDate) dueToday++;
+  }
+  if (statsOverdueNumEl) statsOverdueNumEl.textContent = overdue;
+  if (statsTodayNumEl) statsTodayNumEl.textContent = dueToday;
+
+  // === Heatmap (30 Tage) ===
+  if (statsHeatmapEl) {
+    statsHeatmapEl.innerHTML = "";
+    for (let i = 29; i >= 0; i--) {
+      const date = dateKeyOffset(i);
+      const day = (state.stats.daily && state.stats.daily[date]) || null;
+      const plays = day ? (day.plays || 0) : 0;
+      const bucket = heatmapBucket(plays);
+      const cell = document.createElement("div");
+      cell.className = "stats-heatmap-cell" + (i === 0 ? " today" : "");
+      cell.style.background = HEATMAP_COLORS[bucket];
+      cell.title = date + " — " + plays + " Play" + (plays === 1 ? "" : "s");
+      statsHeatmapEl.appendChild(cell);
+    }
+  }
+  if (statsLegendScaleEl) {
+    statsLegendScaleEl.innerHTML = "";
+    for (let i = 0; i < 5; i++) {
+      const sw = document.createElement("span");
+      sw.style.background = HEATMAP_COLORS[i];
+      statsLegendScaleEl.appendChild(sw);
+    }
+  }
+
+  // === Insel-Grid (Kategorien sortiert nach % gelernt) ===
+  if (statsInselnGridEl) {
+    statsInselnGridEl.innerHTML = "";
+    const cats = (DATA && DATA.categories) || [];
+    const rows = [];
+    for (const cat of cats) {
+      let total = 0, catLearned = 0;
+      for (const s of allSentences()) {
+        if (s.archived || s.pending) continue;
+        if (!s.cats || !s.cats.includes(cat.key)) continue;
+        total++;
+        if (state.ratings[s.id] === "learned") catLearned++;
+      }
+      if (total === 0) continue;
+      rows.push({ cat: cat, total: total, learned: catLearned, pct: catLearned / total });
+    }
+    rows.sort(function (a, b) { return b.pct - a.pct; });
+
+    for (const row of rows) {
+      const pct = Math.round(row.pct * 100);
+      const card = document.createElement("div");
+      card.className = "stats-insel";
+      // Farbe der Progress-Fill nach Reifegrad
+      let fillColor = "var(--warning)";
+      if (pct >= 60) fillColor = "var(--learned)";
+      else if (pct >= 30) fillColor = "var(--primary)";
+
+      card.innerHTML =
+        '<div class="stats-insel-header">' +
+          '<span style="font-size:20px;">' + (row.cat.icon || "📚") + "</span>" +
+          '<span class="stats-insel-name"></span>' +
+        "</div>" +
+        '<div class="stats-insel-progress"><div class="stats-insel-progress-fill" style="width:' + pct + '%; background:' + fillColor + ';"></div></div>' +
+        '<div class="stats-insel-meta">' +
+          '<span>' + row.learned + " / " + row.total + " gelernt</span>" +
+          '<span class="stats-insel-tag">' + pct + '%</span>' +
+        "</div>";
+      const nameEl = card.querySelector(".stats-insel-name");
+      if (nameEl) nameEl.textContent = row.cat.label || row.cat.key;
+      statsInselnGridEl.appendChild(card);
+    }
+
+    if (rows.length === 0) {
+      const empty = document.createElement("div");
+      empty.style.cssText = "grid-column: 1 / -1; padding: 24px; text-align: center; color: var(--secondary); font-size: 13px;";
+      empty.textContent = "Noch keine Kategorien aktiv.";
+      statsInselnGridEl.appendChild(empty);
+    }
+  }
+}
+
+// CTA: "Recall starten" → schließt Stats-Page und springt in Recall-Mode
+if (statsRecallCtaBtn) {
+  statsRecallCtaBtn.onclick = function () {
+    closeStatsPage();
+    // recallBtn.onclick wechselt Mode + applyFilter
+    if (recallBtn) recallBtn.click();
+  };
+}
+
+// Page open/close — gleiches Pattern wie Saetze
+let _modeBeforeStats = null;
+function openStatsPage() {
+  _modeBeforeStats = document.body.classList.contains("focus")
+    ? "focus"
+    : (document.body.classList.contains("recall") ? "recall" : "listen");
+  document.body.classList.remove("focus");
+  document.body.classList.remove("recall");
+  document.body.classList.remove("new-sentence");
+  document.body.classList.remove("saetze");
+  document.body.classList.add("stats");
+  if (sideStatsLink) sideStatsLink.classList.add("active");
+  closeSidePanel();
+  renderStatsPage();
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+function closeStatsPage() {
+  document.body.classList.remove("stats");
+  if (sideStatsLink) sideStatsLink.classList.remove("active");
+  if (_modeBeforeStats === "focus" && typeof setFocusModeActive === "function") {
+    setFocusModeActive();
+  } else if (_modeBeforeStats === "recall") {
+    document.body.classList.add("recall");
+  }
+  _modeBeforeStats = null;
+}
+if (sideStatsLink) sideStatsLink.onclick = function () { openStatsPage(); };
+if (statsBackBtn) statsBackBtn.onclick = function () { closeStatsPage(); };
 
 
 // Main sort handler
@@ -2446,6 +2709,24 @@ async function pullCloudData() {
       if (s.us_sort) state.usSort = s.us_sort;
       if (s.intro_counts && typeof s.intro_counts === "object") state.introCounts = s.intro_counts;
       if (s.card_state && typeof s.card_state === "object") state.cardState = s.card_state;
+      if (s.stats && typeof s.stats === "object") {
+        // Merge: cloud-stats sind autoritativ für vergangene Tage, lokale
+        // Inkremente von heute bleiben aber (in der Zwischenzeit aufgelaufen)
+        const today = isoToday();
+        const localToday = state.stats.daily && state.stats.daily[today];
+        state.stats = s.stats;
+        if (!state.stats.daily) state.stats.daily = {};
+        if (!state.stats.all_time) state.stats.all_time = {};
+        if (localToday) {
+          // Lokale > Cloud, falls die Cloud noch alte Werte hat
+          const cloudToday = state.stats.daily[today] || { plays: 0, reveals: 0, rated: 0 };
+          state.stats.daily[today] = {
+            plays: Math.max(cloudToday.plays || 0, localToday.plays || 0),
+            reveals: Math.max(cloudToday.reveals || 0, localToday.reveals || 0),
+            rated: Math.max(cloudToday.rated || 0, localToday.rated || 0),
+          };
+        }
+      }
       // SRS Phase A: one-shot migration of existing ratings into card_state.
       // Idempotent via settings.srs_phase_a_migrated flag — runs only on first
       // login after deploying Phase A. Distributes due_at across the next 1/3/7/30
@@ -2479,6 +2760,7 @@ async function pullCloudData() {
       localStorage.setItem("hl_us_sort", state.usSort);
       localStorage.setItem("hl_intro_counts", JSON.stringify(state.introCounts));
       localStorage.setItem("hl_card_state", JSON.stringify(state.cardState));
+      localStorage.setItem("hl_stats", JSON.stringify(state.stats));
     }
     // User sentences
     const { data: sentences, error: sErr } = await sb
@@ -2520,6 +2802,7 @@ async function pushProfile() {
         us_sort: state.usSort,
         intro_counts: state.introCounts,
         card_state: state.cardState,
+        stats: state.stats,
         // Set on first login post-Phase-A, prevents the migration block in
         // pullCloudData from re-running on subsequent logins.
         srs_phase_a_migrated: true,
@@ -3131,7 +3414,10 @@ function playFocusAudio() {
   if (!src) { showToast("Kein Audio für diesen Satz."); return; }
   audioEl.src = src;
   audioEl.playbackRate = state.speed;
-  audioEl.play().catch(function (err) { console.error("Focus play failed", err); });
+  audioEl.play().then(function () {
+    incrementStat("plays");
+    if (typeof updateMediaSessionMetadata === "function") updateMediaSessionMetadata(s);
+  }).catch(function (err) { console.error("Focus play failed", err); });
 }
 
 function rateFocusAndAdvance(rateKey) {
@@ -3577,6 +3863,7 @@ function playCarCurrent() {
     // der Media-Session-Player nach dem ersten Clip (Android sieht die Session
     // sonst als stale an).
     if (typeof updateMediaSessionMetadata === "function") updateMediaSessionMetadata(s);
+    incrementStat("plays");
   }).catch(function (err) {
     console.error("Car play failed", err);
     carStatusEl.textContent = "Audio-Fehler";

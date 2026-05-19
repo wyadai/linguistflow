@@ -2735,6 +2735,229 @@ body.saetze .saetze-page { display: block; }
 }
 
 /* =====================================================================
+   STATISTIKEN — eigene Seite (Phase 3 Redesign)
+   ===================================================================== */
+
+body.stats .stats-row,
+body.stats .progress-row,
+body.stats .progress-bar,
+body.stats .mode-buttons,
+body.stats .hint,
+body.stats .rating-filter,
+body.stats .toolbar,
+body.stats #cards,
+body.stats .no-results,
+body.stats .focus-session,
+body.stats .car-session,
+body.stats .intro-session,
+body.stats .player,
+body.stats .fab { display: none !important; }
+
+.stats-page { display: none; }
+body.stats .stats-page { display: block; margin-top: 4px; }
+
+.stats-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.stats-back-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px 8px 10px;
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-lowest);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px; font-weight: 600;
+  color: var(--on-surface);
+  flex-shrink: 0;
+}
+.stats-back-btn:hover { background: var(--surface-high); border-color: var(--primary); }
+.stats-header-title { flex: 1; min-width: 0; }
+.stats-header-title h2 {
+  margin: 0;
+  font-size: 26px; font-weight: 700;
+  color: var(--primary);
+  letter-spacing: -0.01em;
+}
+.stats-header-title p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--secondary);
+  line-height: 1.5;
+}
+
+/* Streak-Bar — Pattern aus dem Redesign-Mockup */
+.stats-page .streak-bar {
+  display: flex; align-items: center; gap: 18px;
+  background: var(--surface-lowest); border-radius: var(--radius);
+  padding: 14px 20px; margin-bottom: 20px;
+  border: 1px solid var(--outline-variant);
+  flex-wrap: wrap;
+}
+.stats-page .streak-item {
+  display: flex; align-items: center; gap: 10px;
+}
+.stats-page .streak-value {
+  font-size: 22px; font-weight: 700; line-height: 1;
+  color: var(--on-surface);
+  font-variant-numeric: tabular-nums;
+}
+.stats-page .streak-label {
+  font-size: 10px; color: var(--secondary); font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  margin-top: 2px;
+}
+.stats-page .streak-divider {
+  width: 1px; height: 30px; background: var(--outline-variant);
+}
+
+/* Allgemeine Stats-Card (Heute fällig, Heatmap-Container) */
+.stats-card {
+  background: var(--surface-lowest); border-radius: var(--radius-lg);
+  padding: 18px 20px; margin-bottom: 22px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--outline-variant);
+}
+.stats-card-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.stats-card-header h2 {
+  margin: 0;
+  font-size: 17px; font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.stats-card-sub {
+  font-size: 12px; color: var(--secondary);
+}
+
+/* Heute-Rows (Pattern aus heute-card) — eigener Namespace, kollidiert nicht
+   mit den globalen .stats-row stat-tiles im Listen-Modus-Header */
+.stats-due-row {
+  display: flex;
+  align-items: center; gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--surface-low);
+}
+.stats-due-row:last-of-type { border-bottom: none; }
+.stats-due-icon {
+  width: 38px; height: 38px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.stats-due-icon.warning { background: var(--warning-soft); color: var(--warning-ink); }
+.stats-due-icon.primary { background: var(--surface-container); color: var(--primary); }
+.stats-due-icon.accent { background: var(--accent-soft); color: var(--accent); }
+.stats-due-text { flex: 1; min-width: 0; }
+.stats-due-title { font-size: 14px; font-weight: 600; margin: 0; }
+.stats-due-sub { font-size: 12px; color: var(--secondary); margin: 2px 0 0; }
+.stats-due-num {
+  font-size: 20px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.stats-card-footer {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding-top: 12px;
+}
+.stats-cta-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--primary); color: var(--on-primary);
+  border: none; padding: 9px 18px; border-radius: var(--radius-pill);
+  font-weight: 600; font-size: 13px; cursor: pointer;
+  font-family: inherit;
+}
+.stats-cta-btn:hover { background: var(--primary-container); }
+
+/* Section-Title */
+.stats-section-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--secondary);
+  margin: 0 0 10px;
+}
+
+/* Heatmap */
+.stats-heatmap-card { padding: 16px 18px; }
+.stats-heatmap {
+  display: grid; grid-template-columns: repeat(30, 1fr); gap: 3px;
+}
+.stats-heatmap-cell {
+  aspect-ratio: 1; border-radius: 3px;
+  background: var(--surface-low);
+}
+.stats-heatmap-cell.today {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.stats-heatmap-legend {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 10px; color: var(--outline); margin-top: 8px;
+  font-weight: 600;
+}
+.stats-legend-mid {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.stats-legend-scale {
+  display: inline-flex; gap: 2px;
+}
+.stats-legend-scale > span {
+  width: 9px; height: 9px; border-radius: 2px;
+}
+
+/* Insel-Grid */
+.stats-inseln-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  margin-bottom: 24px;
+}
+.stats-insel {
+  background: var(--surface-lowest); border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  border: 1px solid var(--outline-variant);
+}
+.stats-insel-header {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px;
+}
+.stats-insel-name {
+  font-size: 13px; font-weight: 700;
+  color: var(--on-surface);
+}
+.stats-insel-progress {
+  height: 6px; background: var(--surface-low);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.stats-insel-progress-fill {
+  height: 100%; border-radius: var(--radius-pill);
+}
+.stats-insel-meta {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+.stats-insel-tag {
+  font-weight: 700; color: var(--accent);
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+  .stats-page .streak-bar { gap: 12px; padding: 12px 16px; }
+  .stats-page .streak-value { font-size: 18px; }
+  .stats-inseln-grid { grid-template-columns: 1fr; }
+  .stats-header-title h2 { font-size: 22px; }
+  .stats-heatmap { gap: 2px; }
+}
+@media (max-width: 480px) {
+  .stats-back-label { display: none; }
+  .stats-header { gap: 10px; }
+}
+
+/* =====================================================================
    AUTO-MODUS (Car Mode) — Shadowing fürs Auto
    ===================================================================== */
 

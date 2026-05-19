@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=phase2-srs-cleanup">
+<link rel="stylesheet" href="styles.css?v=phase3-stats">
 </head>
 <body>
   <!-- ===== Login screen (visible when not authenticated) ===== -->
@@ -63,6 +63,12 @@
       <button class="side-section-link" id="side-saetze-link">
         <span class="side-sum-icon material-symbols-outlined">edit_note</span>
         Meine Sätze
+        <span class="material-symbols-outlined side-section-link-arrow" style="font-size:16px;">arrow_forward</span>
+      </button>
+
+      <button class="side-section-link" id="side-stats-link">
+        <span class="side-sum-icon material-symbols-outlined">bar_chart</span>
+        Statistiken
         <span class="material-symbols-outlined side-section-link-arrow" style="font-size:16px;">arrow_forward</span>
       </button>
 
@@ -790,6 +796,96 @@
 
       </div>
 
+      <!-- ===== Statistiken (eigene Seite) ===== -->
+      <div class="stats-page" id="stats-page">
+
+        <div class="stats-header">
+          <button class="stats-back-btn" id="stats-back-btn" title="Zurück">
+            <span class="material-symbols-outlined" style="font-size:20px;">arrow_back</span>
+            <span class="stats-back-label">Zurück</span>
+          </button>
+          <div class="stats-header-title">
+            <h2>Statistiken</h2>
+            <p>Wo du gerade stehst — letzte 30 Tage.</p>
+          </div>
+        </div>
+
+        <!-- Streak-Bar -->
+        <div class="streak-bar">
+          <div class="streak-item">
+            <span class="material-symbols-outlined" style="font-size:26px; color: var(--warning);">local_fire_department</span>
+            <div>
+              <div class="streak-value" id="stats-streak-value">—</div>
+              <div class="streak-label">Tage Streak</div>
+            </div>
+          </div>
+          <div class="streak-divider"></div>
+          <div class="streak-item">
+            <span class="material-symbols-outlined" style="font-size:24px; color: var(--primary);">headphones</span>
+            <div>
+              <div class="streak-value" id="stats-plays-today">—</div>
+              <div class="streak-label">Heute gehört</div>
+            </div>
+          </div>
+          <div class="streak-divider"></div>
+          <div class="streak-item">
+            <span class="material-symbols-outlined" style="font-size:24px; color: var(--learned);">check_circle</span>
+            <div>
+              <div class="streak-value" id="stats-learned">—</div>
+              <div class="streak-label">Gelernt gesamt</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Heute fällig -->
+        <div class="stats-card">
+          <div class="stats-card-header">
+            <h2>Heute fällig</h2>
+            <span class="stats-card-sub">Recall · Phase-A SRS</span>
+          </div>
+          <div class="stats-due-row">
+            <div class="stats-due-icon warning"><span class="material-symbols-outlined" style="font-size:20px;">error</span></div>
+            <div class="stats-due-text">
+              <p class="stats-due-title">überfällig</p>
+              <p class="stats-due-sub">aus den letzten Tagen liegen geblieben</p>
+            </div>
+            <span class="stats-due-num" id="stats-overdue-num">0</span>
+          </div>
+          <div class="stats-due-row">
+            <div class="stats-due-icon primary"><span class="material-symbols-outlined" style="font-size:20px;">schedule</span></div>
+            <div class="stats-due-text">
+              <p class="stats-due-title">für heute</p>
+              <p class="stats-due-sub">planmäßig laut Intervall fällig</p>
+            </div>
+            <span class="stats-due-num" id="stats-today-num">0</span>
+          </div>
+          <div class="stats-card-footer">
+            <button class="stats-cta-btn" id="stats-recall-cta">
+              <span class="material-symbols-outlined" style="font-size:16px;">play_arrow</span>
+              Recall starten
+            </button>
+          </div>
+        </div>
+
+        <!-- Heatmap -->
+        <h3 class="stats-section-title">Aktivität · letzte 30 Tage</h3>
+        <div class="stats-card stats-heatmap-card">
+          <div class="stats-heatmap" id="stats-heatmap"></div>
+          <div class="stats-heatmap-legend">
+            <span>vor 30 Tagen</span>
+            <span class="stats-legend-mid">weniger
+              <span class="stats-legend-scale" id="stats-legend-scale"></span>
+              mehr</span>
+            <span>heute</span>
+          </div>
+        </div>
+
+        <!-- Insel-Grid -->
+        <h3 class="stats-section-title">Fortschritt pro Sprachinsel</h3>
+        <div class="stats-inseln-grid" id="stats-inseln-grid"></div>
+
+      </div>
+
     </main>
   </div>
 
@@ -832,7 +928,7 @@
   <audio id="audio" preload="none"></audio>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-  <script src="data.js?v=phase2-srs-cleanup"></script>
-  <script src="app.js?v=phase2-srs-cleanup"></script>
+  <script src="data.js?v=phase3-stats"></script>
+  <script src="app.js?v=phase3-stats"></script>
 </body>
 </html>
