@@ -3352,6 +3352,10 @@ function playCarCurrent() {
     carPauseIcon.style.display = "block";
     carPlayIcon.style.display = "none";
     carStatusEl.textContent = "Spielt ab";
+    // PWA: refresh Lockscreen-Metadata für jeden neuen Satz, sonst verschwindet
+    // der Media-Session-Player nach dem ersten Clip (Android sieht die Session
+    // sonst als stale an).
+    if (typeof updateMediaSessionMetadata === "function") updateMediaSessionMetadata(s);
   }).catch(function (err) {
     console.error("Car play failed", err);
     carStatusEl.textContent = "Audio-Fehler";
@@ -3387,15 +3391,33 @@ function carResume() {
 function carAdvance(skipPause) {
   if (!car.active) return;
   car.repCount++;
+
+  // PWA-Background-Fix: Android/iOS drosseln setTimeout in versteckten Seiten
+  // (1× pro Minute, sobald Audio aus ist). Wenn der Screen gerade gesperrt ist
+  // → keinen Timer schedulen, direkt synchron weitermachen, damit das nächste
+  // audioEl.play() die Tab-"audible"-Status erneuert.
+  const inBackground = typeof document !== "undefined" && document.hidden;
+  const proceedNext = function () {
+    if (car.active && !car.paused) {
+      renderCarCard();
+      playCarCurrent();
+    }
+  };
+  const schedule = function (delayMs) {
+    if (inBackground) {
+      car.pendingTimer = null;
+      proceedNext();
+    } else {
+      car.pendingTimer = setTimeout(function () {
+        car.pendingTimer = null;
+        proceedNext();
+      }, delayMs);
+    }
+  };
+
   if (car.repCount < car.repeats) {
     carStatusEl.textContent = "Shadow-Pause…";
-    car.pendingTimer = setTimeout(function () {
-      car.pendingTimer = null;
-      if (car.active && !car.paused) {
-        renderCarCard();
-        playCarCurrent();
-      }
-    }, skipPause ? 0 : car.shadowPause * 1000);
+    schedule(skipPause ? 0 : car.shadowPause * 1000);
   } else {
     car.repCount = 0;
     car.idx++;
@@ -3418,13 +3440,7 @@ function carAdvance(skipPause) {
       }
     }
     carStatusEl.textContent = "Nächste Karte…";
-    car.pendingTimer = setTimeout(function () {
-      car.pendingTimer = null;
-      if (car.active && !car.paused) {
-        renderCarCard();
-        playCarCurrent();
-      }
-    }, skipPause ? 0 : car.sentencePause * 1000);
+    schedule(skipPause ? 0 : car.sentencePause * 1000);
   }
 }
 
