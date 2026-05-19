@@ -122,6 +122,24 @@
         </div>
       </details>
 
+      <details class="side-section" id="intro-section">
+        <summary>
+          <span class="side-sum-icon material-symbols-outlined">school</span>
+          Einführung
+          <span id="intro-section-count" class="side-badge"></span>
+        </summary>
+        <div class="side-section-content">
+          <div class="side-label">Kategorie in Einführung schieben</div>
+          <select id="intro-cat-select" class="us-sort">
+            <option value="">Kategorie wählen…</option>
+          </select>
+          <button class="side-btn primary" id="intro-send-cat-btn" disabled>
+            <span id="intro-send-cat-text">In Einführung schieben</span>
+          </button>
+          <small class="side-tiny">Alle Karten dieser Kategorie werden zurück in den Einführungs-Pool gesetzt (intro_count = 0). Bewertungen bleiben erhalten.</small>
+        </div>
+      </details>
+
       <details class="side-section" id="my-sentences-section">
         <summary>
           <span class="side-sum-icon material-symbols-outlined">edit_note</span>
@@ -229,6 +247,11 @@
 
       <!-- Mode toggle -->
       <div class="mode-buttons">
+        <button class="mode-btn secondary" id="intro-mode-btn" disabled>
+          <span class="material-symbols-outlined" style="font-size:18px;">school</span>
+          <span class="label-full">Einführung</span>
+          <span class="mode-btn-count" id="intro-mode-count" style="display:none;"></span>
+        </button>
         <button class="mode-btn primary" id="listen-mode-btn">
           <span class="material-symbols-outlined fill" style="font-size:18px;">headphones</span>
           <span class="label-full">Anhören &amp; Wiederholen</span>
@@ -421,6 +444,87 @@
 
       </div>
 
+      <!-- ===== Einführungs-Session (nur im Intro-Mode sichtbar) ===== -->
+      <div class="intro-session" id="intro-session">
+
+        <!-- View A: Card view -->
+        <div class="intro-card-view" id="intro-card-view">
+          <div class="intro-progress">
+            <div class="intro-progress-text">
+              <span id="intro-progress-text">Karte 1 von 5</span>
+              <span class="intro-progress-pool" id="intro-progress-pool"></span>
+            </div>
+            <div class="intro-progress-bar">
+              <div class="intro-progress-fill" id="intro-progress-fill"></div>
+            </div>
+          </div>
+
+          <div class="intro-card" id="intro-card">
+            <div class="intro-card-header">
+              <span class="intro-card-num" id="intro-card-num">#85</span>
+              <div class="intro-dots" id="intro-dots" title="Fortschritt dieser Karte">
+                <span class="intro-dot"></span>
+                <span class="intro-dot"></span>
+                <span class="intro-dot"></span>
+                <span class="intro-dot"></span>
+                <span class="intro-dot"></span>
+              </div>
+            </div>
+
+            <div class="intro-side">
+              <div class="intro-side-label">Deutsch</div>
+              <div class="intro-de" id="intro-de">…</div>
+            </div>
+
+            <div class="intro-divider"></div>
+
+            <div class="intro-side">
+              <div class="intro-side-label">Spanisch</div>
+              <div class="intro-es" id="intro-es">…</div>
+            </div>
+
+            <button class="intro-play-btn" id="intro-play-btn" title="Audio (Leertaste)">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
+            </button>
+
+            <div class="intro-audio-hint" id="intro-audio-hint" style="display:none;">Kein Audio vorhanden</div>
+          </div>
+
+          <div class="intro-actions">
+            <button class="intro-action-btn intro-action-again" id="intro-again-btn">
+              <span class="material-symbols-outlined" style="font-size:20px;">refresh</span>
+              <span>Nochmal</span>
+              <span class="intro-kbd">N</span>
+            </button>
+            <button class="intro-action-btn intro-action-got" id="intro-got-btn">
+              <span class="material-symbols-outlined" style="font-size:20px;">check</span>
+              <span>Verstanden</span>
+              <span class="intro-kbd">V</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- View B: Session summary -->
+        <div class="intro-summary" id="intro-summary" style="display:none;">
+          <div class="intro-summary-header">
+            <span class="material-symbols-outlined" style="font-size:42px;">school</span>
+            <h2>Geschafft!</h2>
+            <p id="intro-summary-text">Du hast 5 Karten durchgegangen.</p>
+          </div>
+          <div class="intro-summary-stats" id="intro-summary-stats"></div>
+          <div class="intro-summary-actions">
+            <button class="focus-secondary-btn" id="intro-summary-done">
+              <span>Fertig</span>
+            </button>
+            <button class="focus-start-btn" id="intro-summary-more" style="display:none;">
+              <span>5 mehr aus Backlog</span>
+              <span class="material-symbols-outlined" style="font-size:20px;">arrow_forward</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
       <!-- ===== Auto-Modus (nur im Car-Mode sichtbar) ===== -->
       <div class="car-session" id="car-session">
 
@@ -460,18 +564,18 @@
           <div class="car-setup-block">
             <div class="car-setup-row-label">
               <span class="car-setup-label">Shadow-Pause</span>
-              <span class="car-setup-value" id="car-shadow-value">3.0 s</span>
+              <span class="car-setup-value" id="car-shadow-value">0.5 s</span>
             </div>
-            <input type="range" class="car-slider" id="car-shadow-slider" min="0" max="8" step="0.5" value="3" />
+            <input type="range" class="car-slider" id="car-shadow-slider" min="0" max="8" step="0.5" value="0.5" />
             <small class="car-setup-hint">Stille nach jedem Playback — Zeit zum Nachsprechen.</small>
           </div>
 
           <div class="car-setup-block">
             <div class="car-setup-row-label">
               <span class="car-setup-label">Pause zwischen Sätzen</span>
-              <span class="car-setup-value" id="car-gap-value">1.5 s</span>
+              <span class="car-setup-value" id="car-gap-value">1.0 s</span>
             </div>
-            <input type="range" class="car-slider" id="car-gap-slider" min="0" max="5" step="0.5" value="1.5" />
+            <input type="range" class="car-slider" id="car-gap-slider" min="0" max="5" step="0.5" value="1" />
           </div>
 
           <div class="car-setup-block">
@@ -610,11 +714,16 @@
 
           <!-- ===== Tab: Mehrere ===== -->
           <div class="ns-tab-content" data-ns-content="multi" style="display:none;">
-            <label class="ns-label" for="ns-multi-input">Deutsche Sätze <span class="ns-label-meta">(ein Satz pro Zeile)</span></label>
+            <label class="ns-label" for="ns-multi-input">Deutsche Sätze <span class="ns-label-meta">(ein Satz pro Zeile · für Bulk-Import mit Übersetzung: <code>Deutsch&nbsp;⇥&nbsp;Spanisch</code> pro Zeile)</span></label>
             <div class="ns-textarea-wrap">
               <textarea id="ns-multi-input" class="ns-textarea ns-textarea-lg" placeholder="Magst du heute Abend ins Kino gehen?&#10;Ich gehe morgen früh joggen.&#10;Hast du Lust auf einen Kaffee?" rows="8"></textarea>
             </div>
             <div class="ns-multi-count" id="ns-multi-count">0 Sätze erkannt</div>
+
+            <label class="ns-bulk-option">
+              <input type="checkbox" id="ns-bulk-auto-audio" checked>
+              <span>Audio direkt erzeugen <span class="ns-label-meta">(läuft im Hintergrund, nur für Sätze mit Übersetzung)</span></span>
+            </label>
 
             <label class="ns-label">Kategorien <span class="ns-label-meta">(optional — gilt für alle)</span></label>
             <div class="ns-cat-picker" id="ns-cat-picker-multi"></div>

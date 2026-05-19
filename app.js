@@ -23,6 +23,11 @@ const state = {
   mnemonics: loadJSON("hl_mnemonics", {}),
   shownMnemonics: new Set(loadJSON("hl_shown_mnemonics", [])),
   editingMnemonics: new Set(),
+  // Lifecycle: per-card intro_count.
+  // Default (no entry) = 5 = active. Explicit 0 = backlog. 1..4 = intro stage.
+  // This way no migration is needed for existing cards — they're all "active" by default.
+  // Only cards explicitly put into Einführung get a 0 entry; on graduation the entry is removed.
+  introCounts: loadJSON("hl_intro_counts", {}),
   mode: "listen",
   repeatCount: 0,
   revealed: new Set(),
@@ -136,7 +141,42 @@ function saveJSON(key, val) {
   if (!currentUser || _suppressSync) return;
   if (key === "hl_user_sentences") queuePushSentences();
   else if (key === "hl_ratings" || key === "hl_mnemonics" ||
-           key === "hl_shown_mnemonics" || key === "hl_autoplay") queuePushProfile();
+           key === "hl_shown_mnemonics" || key === "hl_autoplay" ||
+           key === "hl_intro_counts") queuePushProfile();
+}
+
+// ===== Lifecycle helpers (Einführungs-Modus) =====
+// Each card has an intro_count value driving its lifecycle stage:
+//   - explicit 0      → "backlog" (sent to Einführung, not yet seen)
+//   - 1..4            → "intro" (in active introduction)
+//   - 5+ or no entry  → "active" (in normal Listen/Recall/Focus rotation)
+// Default for cards with NO entry is 5 (active) — this avoids needing a one-off
+// migration for the 92 pre-existing cards. They simply don't appear in
+// introCounts and are treated as already-graduated.
+function getIntroCount(id) {
+  const v = state.introCounts[id];
+  return typeof v === "number" ? v : 5;
+}
+function setIntroCount(id, value) {
+  // Storage minimization: anything >= 5 = "active" = default → drop the key.
+  if (value >= 5) delete state.introCounts[id];
+  else state.introCounts[id] = value;
+  saveJSON("hl_intro_counts", state.introCounts);
+}
+function stageOf(id) {
+  const n = getIntroCount(id);
+  if (n <= 0) return "backlog";
+  if (n < 5) return "intro";
+  return "active";
+}
+// Returns how many cards are currently in backlog or intro (NOT active).
+function introPoolCount() {
+  let n = 0;
+  for (const s of allSentences()) {
+    if (s.archived || s.pending || !s.es) continue;
+    if (stageOf(s.id) !== "active") n++;
+  }
+  return n;
 }
 
 // ===== Unified sentence access =====
@@ -175,6 +215,8 @@ const speedBtn = document.getElementById("speed-btn");
 const repeatBtn = document.getElementById("repeat-btn");
 const listenBtn = document.getElementById("listen-mode-btn");
 const recallBtn = document.getElementById("recall-mode-btn");
+const introBtn = document.getElementById("intro-mode-btn");
+const introCountBadge = document.getElementById("intro-mode-count");
 const modeHint = document.getElementById("mode-hint");
 const hamburgerBtn = document.getElementById("hamburger-btn");
 const sidePanel = document.getElementById("side-panel");
@@ -189,6 +231,7 @@ const nsEsInput = document.getElementById("ns-es-input");
 const nsMnemonicInput = document.getElementById("ns-mnemonic-input");
 const nsMultiInput = document.getElementById("ns-multi-input");
 const nsMultiCountEl = document.getElementById("ns-multi-count");
+const nsBulkAutoAudioEl = document.getElementById("ns-bulk-auto-audio");
 const nsCatPickerEl = document.getElementById("ns-cat-picker");
 const nsCatPickerMultiEl = document.getElementById("ns-cat-picker-multi");
 const nsAddBtn = document.getElementById("ns-add-btn");
@@ -466,6 +509,29 @@ async function generateAudioFor(id) {
   }
 }
 
+// Background audio queue for bulk imports. Sequential (ElevenLabs rate-limits +
+// gentler on the user's quota). Each item already uploads to Storage via
+// generateAudioFor. Progress is shown via toast updates.
+async function generateBulkAudios(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return;
+  if (!state.elKey) { showToast("ElevenLabs Key fehlt — Audios nicht generiert.", 4000); return; }
+  let ok = 0, fail = 0;
+  for (let i = 0; i < ids.length; i++) {
+    showToast("Audio " + (i + 1) + " / " + ids.length + " …", 60000);
+    const success = await generateAudioFor(ids[i]);
+    if (success) ok++; else fail++;
+    // Re-render so each card shows the new audio icon as it finishes
+    renderCards();
+    buildUserSentencesList();
+    // Small pause to avoid hammering ElevenLabs
+    await new Promise(function (r) { setTimeout(r, 300); });
+  }
+  updateGenerateAllAudioBtn();
+  const summary = "Audio-Generierung fertig: " + ok + " erfolgreich"
+    + (fail ? ", " + fail + " fehlgeschlagen" : "");
+  showToast(summary, 4000);
+}
+
 async function generateAllPendingAudios() {
   const candidates = state.userSentences.filter(function (s) {
     return !s.archived && s.es && !s.pending && !hasAudio(s);
@@ -613,6 +679,7 @@ function buildCatFilter() {
 // Material Symbols icon for each category key.
 const NS_CAT_ICONS = {
   Arbeit:                  "work",
+  Baby:                    "child_care",
   Familie_Freunde:         "group",
   Gesundheit_Koerper:      "ecg_heart",
   Hobby_Freizeit:          "sports_esports",
@@ -683,17 +750,43 @@ if (nsTabsEl) {
   });
 }
 
-// Multi-mode: live count of parsed sentences
+// Multi-mode: live count of parsed sentences.
+// Returns [{de, es}, ...]. Each line:
+//   - With TAB → first part = DE, rest joined back together = ES (paired import)
+//   - Without TAB → only DE, ES empty (will be translated later via Claude API)
 function parseMultiLines() {
   if (!nsMultiInput) return [];
   return nsMultiInput.value.split("\n")
-    .map(function (s) { return s.trim(); })
-    .filter(function (s) { return s.length > 0; });
+    .map(function (rawLine) {
+      const line = rawLine.replace(/\r$/, ""); // tolerate Windows line endings
+      if (!line.trim()) return null;
+      const tabIdx = line.indexOf("\t");
+      if (tabIdx >= 0) {
+        const de = line.slice(0, tabIdx).trim();
+        const es = line.slice(tabIdx + 1).trim();
+        return { de: de, es: es };
+      }
+      return { de: line.trim(), es: "" };
+    })
+    .filter(function (p) { return p && p.de.length > 0; });
 }
 function updateNsMultiCount() {
   if (!nsMultiCountEl || !nsMultiInput) return;
-  const n = parseMultiLines().length;
-  nsMultiCountEl.textContent = n === 1 ? "1 Satz erkannt" : (n + " Sätze erkannt");
+  const parsed = parseMultiLines();
+  const n = parsed.length;
+  const withEs = parsed.filter(function (p) { return p.es.length > 0; }).length;
+  if (n === 0) {
+    nsMultiCountEl.textContent = "0 Sätze erkannt";
+  } else if (withEs === 0) {
+    // Pure DE-only paste — keep the old, calm label
+    nsMultiCountEl.textContent = n === 1 ? "1 Satz erkannt" : (n + " Sätze erkannt");
+  } else {
+    // Mixed or all-paired — show breakdown so the user knows TAB was detected
+    const pending = n - withEs;
+    let detail = withEs + " mit Übersetzung";
+    if (pending > 0) detail += ", " + pending + " ausstehend";
+    nsMultiCountEl.textContent = n + " Sätze erkannt (" + detail + ")";
+  }
 }
 if (nsMultiInput) nsMultiInput.addEventListener("input", updateNsMultiCount);
 
@@ -716,6 +809,9 @@ function addUserSentence(opts) {
     state.mnemonics[id] = opts.mnemonic.trim();
     saveJSON("hl_mnemonics", state.mnemonics);
   }
+  // New cards automatically enter the Einführungs-Pool (intro_count = 0 = backlog).
+  // Existing cards keep their default of 5 (active) since they have no entry.
+  setIntroCount(id, 0);
   saveJSON("hl_user_sentences", state.userSentences);
   return id;
 }
@@ -733,15 +829,19 @@ function submitNsForm(continueMode) {
   if (state.nsTab === "claude") return;
 
   if (state.nsTab === "multi") {
-    const lines = parseMultiLines();
-    if (lines.length === 0) {
+    const parsed = parseMultiLines();
+    if (parsed.length === 0) {
       showToast("Bitte mindestens einen Satz eingeben.");
       return;
     }
     const ids = [];
-    for (const line of lines) {
-      const id = addUserSentence({ de: line, cats: state.newSentenceCats });
-      if (id) ids.push(id);
+    const idsWithEs = [];
+    for (const pair of parsed) {
+      const id = addUserSentence({ de: pair.de, es: pair.es, cats: state.newSentenceCats });
+      if (id) {
+        ids.push(id);
+        if (pair.es) idsWithEs.push(id);
+      }
     }
     if (nsMultiInput) nsMultiInput.value = "";
     state.newSentenceCats.clear();
@@ -752,7 +852,16 @@ function submitNsForm(continueMode) {
     updateProgress();
     buildUserSentencesList();
     renderNsRecent();
-    showToast(ids.length + " Sätze hinzugefügt (#" + ids[0] + "–#" + ids[ids.length - 1] + ").");
+    const range = ids.length > 1 ? "#" + ids[0] + "–#" + ids[ids.length - 1] : "#" + ids[0];
+    showToast(ids.length + " Sätze hinzugefügt (" + range + ").");
+    // If auto-audio is on AND at least one sentence has ES → run the background queue.
+    const autoAudio = nsBulkAutoAudioEl && nsBulkAutoAudioEl.checked;
+    if (autoAudio && idsWithEs.length > 0 && state.elKey) {
+      // Fire-and-forget; the queue updates UI on its own as it runs.
+      generateBulkAudios(idsWithEs);
+    } else if (autoAudio && idsWithEs.length > 0 && !state.elKey) {
+      showToast("ElevenLabs Key fehlt — Audios nicht generiert.", 4000);
+    }
     closeNewSentencePage();
     return;
   }
@@ -1022,6 +1131,8 @@ function applyFilter() {
   const q = state.search.trim().toLowerCase();
   state.filteredIds = allSentences().filter(function (s) {
     if (s.archived) return false;
+    // Intro/backlog cards live in Einführungs-Modus, not in the normal list
+    if (stageOf(s.id) !== "active") return false;
     if (state.activeCats.size > 0 && !s.cats.some(function (c) { return state.activeCats.has(c); })) return false;
     if (state.activeRatings.size > 0) {
       let match = false;
@@ -1556,6 +1667,26 @@ audioEl.addEventListener("ended", function () {
   }
 });
 
+function updateIntroModeBtn() {
+  if (!introBtn) return;
+  const n = introPoolCount();
+  if (n === 0) {
+    introBtn.disabled = true;
+    introBtn.title = "Keine Karten in Einführung — schiebe eine Kategorie rein (Sidebar) oder importiere neue.";
+    if (introCountBadge) introCountBadge.style.display = "none";
+  } else {
+    introBtn.disabled = false;
+    introBtn.title = n + " Karte(n) in Einführung";
+    if (introCountBadge) {
+      introCountBadge.style.display = "inline-flex";
+      introCountBadge.textContent = String(n);
+    }
+  }
+  // Mirror to sidebar section badge (may not exist yet on first call during boot)
+  const sectionBadge = document.getElementById("intro-section-count");
+  if (sectionBadge) sectionBadge.textContent = n > 0 ? String(n) : "";
+}
+
 function updateProgress() {
   const total = allSentences().length;
   let learned = 0;
@@ -1564,6 +1695,8 @@ function updateProgress() {
   const pct = total ? Math.round((learned / total) * 100) : 0;
   progressPercent.textContent = pct + "%";
   progressFill.style.width = pct + "%";
+  // Intro mode button reflects pool size; keep it in sync with state changes
+  updateIntroModeBtn();
 
   // Stat tiles (top of page). Streak is reserved for Phase 5 — placeholder for now.
   const statMastered = document.getElementById("stat-mastered");
@@ -1904,6 +2037,7 @@ async function pullCloudData() {
       if (typeof s.autoplay === "boolean") state.autoPlay = s.autoplay;
       if (s.main_sort) state.mainSort = s.main_sort;
       if (s.us_sort) state.usSort = s.us_sort;
+      if (s.intro_counts && typeof s.intro_counts === "object") state.introCounts = s.intro_counts;
       // Mirror to localStorage (cache for offline / next reload)
       localStorage.setItem("hl_ratings", JSON.stringify(state.ratings));
       localStorage.setItem("hl_mnemonics", JSON.stringify(state.mnemonics));
@@ -1911,6 +2045,7 @@ async function pullCloudData() {
       localStorage.setItem("hl_autoplay", JSON.stringify(state.autoPlay));
       localStorage.setItem("hl_main_sort", state.mainSort);
       localStorage.setItem("hl_us_sort", state.usSort);
+      localStorage.setItem("hl_intro_counts", JSON.stringify(state.introCounts));
     }
     // User sentences
     const { data: sentences, error: sErr } = await sb
@@ -1950,6 +2085,7 @@ async function pushProfile() {
         autoplay: state.autoPlay,
         main_sort: state.mainSort,
         us_sort: state.usSort,
+        intro_counts: state.introCounts,
       },
       updated_at: new Date().toISOString(),
     });
@@ -2253,6 +2389,7 @@ function focusEligibleSentences() {
   return allSentences().filter(function (s) {
     if (s.archived) return false;
     if (s.pending) return false;          // no point practicing untranslated
+    if (stageOf(s.id) !== "active") return false;  // intro/backlog excluded
     if (focus.cats.size > 0 && !s.cats.some(function (c) { return focus.cats.has(c); })) return false;
     if (focus.ratings.size > 0) {
       let match = false;
@@ -2798,6 +2935,7 @@ function carEligibleSentences() {
     if (s.pending) return false;
     if (!s.es) return false;
     if (!hasAudio(s)) return false;
+    if (stageOf(s.id) !== "active") return false;  // intro/backlog excluded
     if (car.cats.size > 0 && !s.cats.some(function (c) { return car.cats.has(c); })) return false;
     if (car.ratings.size > 0) {
       let match = false;
@@ -3099,6 +3237,329 @@ buildCarCatPicker();
 buildCarRatingPicker();
 wireCarSetup();
 updateCarSetupSummary();
+
+// =====================================================================
+// EINFÜHRUNGS-MODUS (Phase 3) — Glossika-style 5× exposure for new cards
+// =====================================================================
+
+const intro = {
+  active: false,
+  queue: [],            // array of sentence IDs in this session
+  idx: 0,
+  startedAt: 0,
+  // session stats for the summary screen
+  graduated: 0,         // intro_count reached 5+
+  advanced: 0,          // intro_count incremented but still <5
+  again: 0,             // "Nochmal" clicks
+};
+
+// DOM refs for intro session
+const introSessionEl = document.getElementById("intro-session");
+const introCardViewEl = document.getElementById("intro-card-view");
+const introSummaryEl = document.getElementById("intro-summary");
+const introProgressTextEl = document.getElementById("intro-progress-text");
+const introProgressPoolEl = document.getElementById("intro-progress-pool");
+const introProgressFillEl = document.getElementById("intro-progress-fill");
+const introCardNumEl = document.getElementById("intro-card-num");
+const introDotsEl = document.getElementById("intro-dots");
+const introDeEl = document.getElementById("intro-de");
+const introEsEl = document.getElementById("intro-es");
+const introPlayBtn = document.getElementById("intro-play-btn");
+const introAudioHintEl = document.getElementById("intro-audio-hint");
+const introAgainBtn = document.getElementById("intro-again-btn");
+const introGotBtn = document.getElementById("intro-got-btn");
+const introSummaryTextEl = document.getElementById("intro-summary-text");
+const introSummaryStatsEl = document.getElementById("intro-summary-stats");
+const introSummaryDoneBtn = document.getElementById("intro-summary-done");
+const introSummaryMoreBtn = document.getElementById("intro-summary-more");
+
+// Build the session queue: all "intro" (1-4) cards + up to 5 "backlog" (0) cards.
+// Backlog cards get intro_count = 1 on entry (the "free" first showing).
+function buildIntroQueue() {
+  const introStage = [];
+  const backlog = [];
+  for (const s of allSentences()) {
+    if (s.archived || s.pending || !s.es) continue;
+    const stage = stageOf(s.id);
+    if (stage === "intro") introStage.push(s.id);
+    else if (stage === "backlog") backlog.push(s.id);
+  }
+  // Shuffle each pool
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  }
+  shuffle(introStage);
+  shuffle(backlog);
+  // Take up to 5 backlog cards, promote them to intro_count = 1
+  const newcomers = backlog.slice(0, 5);
+  for (const id of newcomers) setIntroCount(id, 1);
+  return introStage.concat(newcomers);
+}
+
+function startIntroSession() {
+  const queue = buildIntroQueue();
+  if (queue.length === 0) {
+    showToast("Keine Karten in Einführung. Schiebe eine Kategorie rein oder importiere neue Sätze.", 4000);
+    setListenModeFromIntro();
+    return;
+  }
+  intro.queue = queue;
+  intro.idx = 0;
+  intro.active = true;
+  intro.startedAt = Date.now();
+  intro.graduated = 0;
+  intro.advanced = 0;
+  intro.again = 0;
+  introSummaryEl.style.display = "none";
+  introCardViewEl.style.display = "block";
+  showIntroCard();
+}
+
+function showIntroCard() {
+  if (intro.idx >= intro.queue.length) { endIntroSession(); return; }
+  const id = intro.queue[intro.idx];
+  const s = getSentenceById(id);
+  if (!s) { intro.idx++; showIntroCard(); return; }
+  const count = getIntroCount(id);
+  // Progress header
+  introProgressTextEl.textContent = "Karte " + (intro.idx + 1) + " von " + intro.queue.length;
+  const remaining = introPoolCount();
+  introProgressPoolEl.textContent = remaining + " in Einführung";
+  const pct = ((intro.idx) / intro.queue.length) * 100;
+  introProgressFillEl.style.width = pct + "%";
+  // Card content
+  introCardNumEl.textContent = "#" + id;
+  introDeEl.textContent = s.de;
+  introEsEl.textContent = s.es;
+  // Dots
+  const dots = introDotsEl.querySelectorAll(".intro-dot");
+  for (let i = 0; i < dots.length; i++) {
+    dots[i].classList.toggle("filled", i < count);
+  }
+  // Audio
+  const src = audioSrcFor(s);
+  if (src) {
+    introPlayBtn.disabled = false;
+    introAudioHintEl.style.display = "none";
+    // Auto-play (user gesture chain: they clicked "Verstanden" or started session)
+    audioEl.src = src;
+    audioEl.playbackRate = state.speed || 1.0;
+    audioEl.play().catch(function (err) {
+      console.warn("Intro autoplay blocked:", err);
+    });
+  } else {
+    introPlayBtn.disabled = true;
+    introAudioHintEl.style.display = "block";
+  }
+}
+
+introPlayBtn.onclick = function () {
+  const id = intro.queue[intro.idx];
+  const s = getSentenceById(id);
+  if (!s) return;
+  const src = audioSrcFor(s);
+  if (!src) return;
+  audioEl.src = src;
+  audioEl.playbackRate = state.speed || 1.0;
+  audioEl.play().catch(function (err) { console.warn("Intro play failed:", err); });
+};
+
+introAgainBtn.onclick = function () {
+  if (!intro.active) return;
+  // "Nochmal": keep current count, move card to end of queue
+  const id = intro.queue[intro.idx];
+  intro.queue.push(id);
+  intro.again++;
+  intro.idx++;
+  showIntroCard();
+};
+
+introGotBtn.onclick = function () {
+  if (!intro.active) return;
+  const id = intro.queue[intro.idx];
+  const before = getIntroCount(id);
+  const after = Math.min(before + 1, 5);
+  setIntroCount(id, after);
+  if (after >= 5) intro.graduated++;
+  else intro.advanced++;
+  intro.idx++;
+  showIntroCard();
+};
+
+function endIntroSession() {
+  intro.active = false;
+  introCardViewEl.style.display = "none";
+  introSummaryEl.style.display = "flex";
+  const totalSeen = intro.graduated + intro.advanced + intro.again;
+  introSummaryTextEl.textContent = "Du hast " + totalSeen + " Wiederholungen durchgegangen.";
+  introSummaryStatsEl.innerHTML =
+    '<div class="intro-summary-stat"><div class="intro-summary-stat-num">' + intro.graduated + '</div><div class="intro-summary-stat-label">graduiert</div></div>' +
+    '<div class="intro-summary-stat"><div class="intro-summary-stat-num">' + intro.advanced + '</div><div class="intro-summary-stat-label">weiter</div></div>' +
+    '<div class="intro-summary-stat"><div class="intro-summary-stat-num">' + intro.again + '</div><div class="intro-summary-stat-label">nochmal</div></div>';
+  // Show "5 more from backlog" only if there's still backlog
+  const stillBacklog = allSentences().some(function (s) {
+    return !s.archived && !s.pending && s.es && stageOf(s.id) === "backlog";
+  });
+  introSummaryMoreBtn.style.display = stillBacklog ? "inline-flex" : "none";
+  updateIntroModeBtn();
+}
+
+introSummaryDoneBtn.onclick = function () {
+  introSummaryEl.style.display = "none";
+  setListenModeFromIntro();
+};
+introSummaryMoreBtn.onclick = function () {
+  startIntroSession();
+};
+
+function setIntroModeActive() {
+  state.mode = "intro";
+  document.body.classList.add("intro");
+  window.scrollTo(0, 0);
+  document.body.classList.remove("recall");
+  document.body.classList.remove("focus");
+  document.body.classList.remove("car");
+  document.body.classList.remove("car-night");
+  document.body.classList.remove("car-driving");
+  listenBtn.classList.remove("primary"); listenBtn.classList.add("secondary");
+  recallBtn.classList.remove("primary"); recallBtn.classList.add("secondary");
+  focusBtn.classList.remove("primary"); focusBtn.classList.add("secondary");
+  carBtn.classList.remove("primary"); carBtn.classList.add("secondary");
+  introBtn.classList.remove("secondary"); introBtn.classList.add("primary");
+  modeHint.textContent = "Sanfte Einführung: Karten 5× sehen, bevor sie in Listen/Recall kommen.";
+  startIntroSession();
+}
+
+function setListenModeFromIntro() {
+  // Reset mode chrome back to listen
+  document.body.classList.remove("intro");
+  introBtn.classList.remove("primary"); introBtn.classList.add("secondary");
+  // Delegate to the existing listen button click handler
+  listenBtn.click();
+}
+
+introBtn.onclick = setIntroModeActive;
+
+// Wrap other mode buttons so that switching out of intro cleans up correctly
+const _origListenForIntro = listenBtn.onclick;
+listenBtn.onclick = function () {
+  if (intro.active) intro.active = false;
+  document.body.classList.remove("intro");
+  introBtn.classList.remove("primary"); introBtn.classList.add("secondary");
+  _origListenForIntro.call(this);
+};
+const _origRecallForIntro = recallBtn.onclick;
+recallBtn.onclick = function () {
+  if (intro.active) intro.active = false;
+  document.body.classList.remove("intro");
+  introBtn.classList.remove("primary"); introBtn.classList.add("secondary");
+  _origRecallForIntro.call(this);
+};
+const _origFocusForIntro = focusBtn.onclick;
+focusBtn.onclick = function () {
+  if (intro.active) intro.active = false;
+  document.body.classList.remove("intro");
+  introBtn.classList.remove("primary"); introBtn.classList.add("secondary");
+  _origFocusForIntro.call(this);
+};
+const _origCarForIntro = carBtn.onclick;
+carBtn.onclick = function () {
+  if (intro.active) intro.active = false;
+  document.body.classList.remove("intro");
+  introBtn.classList.remove("primary"); introBtn.classList.add("secondary");
+  _origCarForIntro.call(this);
+};
+
+// Keyboard shortcuts inside intro session: V = Verstanden, N = Nochmal, Space = Play
+document.addEventListener("keydown", function (e) {
+  if (state.mode !== "intro" || !intro.active) return;
+  // Skip if user is typing in an input
+  const tag = (e.target && e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea") return;
+  if (e.key === "v" || e.key === "V") { e.preventDefault(); introGotBtn.click(); }
+  else if (e.key === "n" || e.key === "N") { e.preventDefault(); introAgainBtn.click(); }
+  else if (e.key === " ") { e.preventDefault(); introPlayBtn.click(); }
+});
+
+// Initial sync of the button enabled state and counter
+updateIntroModeBtn();
+
+// ----- Sidebar section: send a category back to Einführung -----
+const introCatSelectEl = document.getElementById("intro-cat-select");
+const introSendCatBtn = document.getElementById("intro-send-cat-btn");
+const introSendCatText = document.getElementById("intro-send-cat-text");
+const introSectionCountEl = document.getElementById("intro-section-count");
+
+function buildIntroCatSelect() {
+  if (!introCatSelectEl) return;
+  // Preserve current selection
+  const current = introCatSelectEl.value;
+  introCatSelectEl.innerHTML = '<option value="">Kategorie wählen…</option>';
+  for (const cat of DATA.categories) {
+    // Show how many of this cat are currently active (eligible to be reset)
+    let eligible = 0;
+    for (const s of allSentences()) {
+      if (s.archived || s.pending || !s.es) continue;
+      if (!s.cats || !s.cats.includes(cat.key)) continue;
+      if (stageOf(s.id) === "active") eligible++;
+    }
+    if (eligible === 0) continue;       // skip cats with no active cards
+    const opt = document.createElement("option");
+    opt.value = cat.key;
+    opt.textContent = cat.label + " (" + eligible + ")";
+    introCatSelectEl.appendChild(opt);
+  }
+  // Restore selection if still valid
+  if (current) {
+    const stillValid = Array.from(introCatSelectEl.options).some(function (o) { return o.value === current; });
+    introCatSelectEl.value = stillValid ? current : "";
+  }
+  updateIntroSendCatBtn();
+}
+
+function updateIntroSendCatBtn() {
+  if (!introSendCatBtn) return;
+  introSendCatBtn.disabled = !introCatSelectEl.value;
+}
+
+if (introCatSelectEl) introCatSelectEl.onchange = updateIntroSendCatBtn;
+
+if (introSendCatBtn) introSendCatBtn.onclick = function () {
+  const catKey = introCatSelectEl.value;
+  if (!catKey) return;
+  const catDef = DATA.categories.find(function (c) { return c.key === catKey; });
+  const label = catDef ? catDef.label : catKey;
+  // Find all eligible cards
+  const ids = [];
+  let withoutAudio = 0;
+  for (const s of allSentences()) {
+    if (s.archived || s.pending || !s.es) continue;
+    if (!s.cats || !s.cats.includes(catKey)) continue;
+    if (stageOf(s.id) !== "active") continue;   // skip already in intro
+    ids.push(s.id);
+    if (!hasAudio(s)) withoutAudio++;
+  }
+  if (ids.length === 0) {
+    showToast("Keine aktiven Karten in „" + label + "“.", 3000);
+    return;
+  }
+  let msg = ids.length + " Karte(n) der Kategorie „" + label + "“ in Einführung schieben?";
+  if (withoutAudio > 0) msg += "\n\nHinweis: " + withoutAudio + " davon haben noch kein Audio — werden ohne Auto-Play angezeigt.";
+  if (!confirm(msg)) return;
+  for (const id of ids) setIntroCount(id, 0);
+  showToast(ids.length + " Karten in Einführung verschoben.", 3000);
+  applyFilter();
+  renderCards();
+  updateProgress();        // also updates intro mode button
+  buildIntroCatSelect();   // refresh counts
+}
+
+// Initial render of the dropdown (badge is updated via updateIntroModeBtn below)
+buildIntroCatSelect();
 
 // Auth comes last so all DOM handlers are wired up first
 initAuth();
