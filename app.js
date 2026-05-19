@@ -28,6 +28,12 @@ const state = {
   // This way no migration is needed for existing cards — they're all "active" by default.
   // Only cards explicitly put into Einführung get a 0 entry; on graduation the entry is removed.
   introCounts: loadJSON("hl_intro_counts", {}),
+  // SRS Phase A: per-card spaced-repetition state.
+  // Shape: { [id]: { interval_days, due_at: "YYYY-MM-DD", last_reviewed_at: "YYYY-MM-DD" } }
+  // Cards without an entry are treated as "never reviewed" — they appear in the
+  // Recall queue automatically (so you can give them their first assessment).
+  // Persisted in cloud under profiles.settings.card_state (parallel to intro_counts).
+  cardState: loadJSON("hl_card_state", {}),
   mode: "listen",
   repeatCount: 0,
   revealed: new Set(),
@@ -145,7 +151,8 @@ function saveJSON(key, val) {
   if (key === "hl_user_sentences") queuePushSentences();
   else if (key === "hl_ratings" || key === "hl_mnemonics" ||
            key === "hl_shown_mnemonics" || key === "hl_autoplay" ||
-           key === "hl_intro_counts") queuePushProfile();
+           key === "hl_intro_counts" ||
+           key === "hl_card_state") queuePushProfile();
 }
 
 // ===== Lifecycle helpers (Einführungs-Modus) =====
@@ -220,6 +227,7 @@ const listenBtn = document.getElementById("listen-mode-btn");
 const recallBtn = document.getElementById("recall-mode-btn");
 const introBtn = document.getElementById("intro-mode-btn");
 const introCountBadge = document.getElementById("intro-mode-count");
+const recallCountBadge = document.getElementById("recall-mode-count");
 const modeHint = document.getElementById("mode-hint");
 const hamburgerBtn = document.getElementById("hamburger-btn");
 const sidePanel = document.getElementById("side-panel");
@@ -1048,11 +1056,13 @@ function permanentDeleteUserSentence(id, silent) {
   state.userSentences = state.userSentences.filter(function (x) { return x.id !== id; });
   delete state.ratings[id];
   delete state.mnemonics[id];
+  delete state.cardState[id];
   state.shownMnemonics.delete(id);
   state.editingMnemonics.delete(id);
   saveJSON("hl_user_sentences", state.userSentences);
   saveJSON("hl_ratings", state.ratings);
   saveJSON("hl_mnemonics", state.mnemonics);
+  saveJSON("hl_card_state", state.cardState);
   saveShownMnemonics();
   deleteAudioFromIDB(id);
   // Also delete from Supabase Storage if this card had a cloud audio file.
@@ -1078,8 +1088,134 @@ function setRating(id, value) {
   if (value === null) delete state.ratings[id];
   else state.ratings[id] = value;
   saveJSON("hl_ratings", state.ratings);
+  // SRS Phase A: jede Rating-Setzung scheduled die Karte neu.
+  // Lapse-Regel ist brutal-simpel: das neue Intervall überschreibt den alten
+  // due_at, egal wie weit die Karte vorher war. 1★ auf einer 30d-Karte = morgen.
+  if (value !== null) scheduleNext(id, value);
+  else clearCardState(id);
   buildRatingFilter();
   updateProgress();
+  if (typeof updateRecallModeBtn === "function") updateRecallModeBtn();
+}
+
+// =====================================================================
+// SRS · Phase A — fixed intervals per rating
+// =====================================================================
+// 1★ = nochmal morgen, 2★ = in 3 Tagen, 3★ = in einer Woche, gelernt = in 30
+// Tagen. Keine Ease-Factor-Berechnung, keine Lapse-Historie. Eine "gelernte"
+// Karte kommt nach 30 Tagen automatisch zurück — damit löst sich "gelernt" als
+// binärer Endzustand und wird zu einem normalen Stop auf der Skala.
+
+const SRS_INTERVALS = { 1: 1, 2: 3, 3: 7, learned: 30 };
+
+function isoToday() {
+  const d = new Date();
+  // Lokales Datum, keine UTC-Verschiebung — der User denkt in lokalen Tagen.
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return y + "-" + m + "-" + day;
+}
+function isoAddDays(iso, days) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return y + "-" + m + "-" + day;
+}
+
+function scheduleNext(id, rating) {
+  const days = SRS_INTERVALS[rating];
+  if (typeof days !== "number") return; // unbekanntes Rating → nichts tun
+  const today = isoToday();
+  state.cardState[id] = {
+    interval_days: days,
+    due_at: isoAddDays(today, days),
+    last_reviewed_at: today,
+  };
+  saveJSON("hl_card_state", state.cardState);
+}
+
+function clearCardState(id) {
+  if (state.cardState[id]) {
+    delete state.cardState[id];
+    saveJSON("hl_card_state", state.cardState);
+  }
+}
+
+// Heute-fällig-Logik: ohne card_state-Eintrag gilt eine aktive Karte als "fällig"
+// (noch nie bewertet → muss erstmal eingeschätzt werden). Sonst gilt der due_at.
+function isDueToday(id) {
+  const cs = state.cardState[id];
+  if (!cs || !cs.due_at) return true;
+  return cs.due_at <= isoToday();
+}
+
+// Liefert die Karten-Queue für den Recall-Modus.
+// Logik: alle aktiven (intro_count >= 5), nicht archivierten Karten als Pool;
+// erst die heute-fälligen; wenn weniger als minCount (5), mit den nächst-fälligen
+// auffüllen (Smart Fallback — damit Recall sich nie leer anfühlt).
+function recallQueue(minCount) {
+  if (typeof minCount !== "number") minCount = 5;
+  const today = isoToday();
+  const active = allSentences().filter(function (s) {
+    if (s.archived) return false;
+    if (stageOf(s.id) !== "active") return false;
+    if (s.pending) return false; // unübersetzte Sätze gehören nicht ins Recall
+    return true;
+  });
+  const due = active.filter(function (s) { return isDueToday(s.id); });
+  if (due.length >= minCount) return due.map(function (s) { return s.id; });
+  // Smart Fallback: ergänze mit den nächst-fälligen, bis minCount erreicht ist.
+  // Karten ohne card_state sind schon in `due`, fallen also hier raus.
+  const others = active
+    .filter(function (s) { return !isDueToday(s.id); })
+    .sort(function (a, b) {
+      const da = (state.cardState[a.id] && state.cardState[a.id].due_at) || "9999-99-99";
+      const db = (state.cardState[b.id] && state.cardState[b.id].due_at) || "9999-99-99";
+      return da.localeCompare(db);
+    });
+  return due.concat(others.slice(0, Math.max(0, minCount - due.length)))
+            .map(function (s) { return s.id; });
+}
+
+// Anzahl der heute-tatsächlich-fälligen Karten (ohne Smart-Fallback-Auffüllung)
+// — für den Counter auf dem Recall-Mode-Button.
+function dueCount() {
+  let n = 0;
+  for (const s of allSentences()) {
+    if (s.archived || s.pending) continue;
+    if (stageOf(s.id) !== "active") continue;
+    if (isDueToday(s.id)) n++;
+  }
+  return n;
+}
+
+// Lokale Migration: wenn cardState leer aber ratings vorhanden, rebuilden.
+// Idempotent — läuft nur wenn cardState wirklich leer ist. Wird beim App-Init
+// VOR pullCloudData aufgerufen, damit der Recall-Modus auch offline / vor
+// dem ersten Cloud-Pull sinnvolle Daten hat.
+function maybeMigrateCardStateLocal() {
+  if (Object.keys(state.cardState).length > 0) return;
+  if (Object.keys(state.ratings).length === 0) return;
+  let migrated = 0;
+  for (const id in state.ratings) {
+    const r = state.ratings[id];
+    if (typeof SRS_INTERVALS[r] !== "number") continue;
+    const days = SRS_INTERVALS[r];
+    const today = isoToday();
+    state.cardState[id] = {
+      interval_days: days,
+      due_at: isoAddDays(today, days),
+      last_reviewed_at: today,
+    };
+    migrated++;
+  }
+  if (migrated > 0) {
+    saveJSON("hl_card_state", state.cardState);
+    console.info("[SRS] local migrate: " + migrated + " ratings → card_state");
+  }
 }
 function ratingMatches(id, key) {
   const r = getRating(id);
@@ -1135,6 +1271,36 @@ function buildRatingFilter() {
 
 function applyFilter() {
   const q = state.search.trim().toLowerCase();
+
+  // Recall mode: Queue kommt aus dem SRS-System (heute-fällig + Smart Fallback).
+  // User-Filter (cats / ratings / search) werden trotzdem ANGEWENDET — der User
+  // kann z.B. „Recall im Bereich Küche" machen, wenn er will. Default ohne
+  // Filter zeigt einfach alle fälligen Karten über alle Kategorien.
+  if (state.mode === "recall") {
+    let queueIds = recallQueue(5);
+    queueIds = queueIds.filter(function (id) {
+      const s = getSentenceById(id);
+      if (!s) return false;
+      if (state.activeCats.size > 0 && !s.cats.some(function (c) { return state.activeCats.has(c); })) return false;
+      if (q && !(s.de.toLowerCase().includes(q) || (s.es && s.es.toLowerCase().includes(q)))) return false;
+      return true;
+    });
+    state.filteredIds = queueIds;
+    // Apply sort wie sonst auch
+    if (state.mainSort === "newest") state.filteredIds.sort(function (a, b) { return b - a; });
+    else if (state.mainSort === "oldest") state.filteredIds.sort(function (a, b) { return a - b; });
+    else if (state.mainSort === "random") {
+      for (let i = state.filteredIds.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = state.filteredIds[i]; state.filteredIds[i] = state.filteredIds[j]; state.filteredIds[j] = tmp;
+      }
+    }
+    state.currentIdx = 0;
+    renderCards();
+    updatePlayer();
+    return;
+  }
+
   state.filteredIds = allSentences().filter(function (s) {
     if (s.archived) return false;
     // Intro/backlog cards live in Einführungs-Modus, not in the normal list
@@ -1701,6 +1867,17 @@ function updateIntroModeBtn() {
   if (sectionBadge) sectionBadge.textContent = n > 0 ? String(n) : "";
 }
 
+function updateRecallModeBtn() {
+  if (!recallCountBadge) return;
+  const n = dueCount();
+  if (n === 0) {
+    recallCountBadge.style.display = "none";
+  } else {
+    recallCountBadge.style.display = "inline-flex";
+    recallCountBadge.textContent = String(n);
+  }
+}
+
 function updateProgress() {
   const total = allSentences().length;
   let learned = 0;
@@ -1711,6 +1888,8 @@ function updateProgress() {
   progressFill.style.width = pct + "%";
   // Intro mode button reflects pool size; keep it in sync with state changes
   updateIntroModeBtn();
+  // Recall mode button reflects heute-fällig count (SRS Phase A)
+  updateRecallModeBtn();
 
   // Stat tiles (top of page). Streak is reserved for Phase 5 — placeholder for now.
   const statMastered = document.getElementById("stat-mastered");
@@ -1791,6 +1970,8 @@ listenBtn.onclick = function () {
   translateToggle.classList.add("on");
   document.querySelectorAll(".de").forEach(function (el) { el.classList.remove("hidden"); });
   modeHint.textContent = "Spanisch zuerst lesen/hören, Deutsch als Hilfe darunter.";
+  // Restore normal filter (kein SRS-Queue mehr)
+  applyFilter();
 };
 recallBtn.onclick = function () {
   state.mode = "recall";
@@ -1798,8 +1979,14 @@ recallBtn.onclick = function () {
   recallBtn.classList.remove("secondary"); recallBtn.classList.add("primary");
   listenBtn.classList.remove("primary"); listenBtn.classList.add("secondary");
   state.revealed.clear();
-  renderCards();
-  modeHint.textContent = "Versuche den Satz auf Spanisch zu bilden — Tab zum Aufdecken. Audio startet nicht automatisch.";
+  // SRS-Queue laden statt der normalen Karten-Liste
+  applyFilter();
+  const n = dueCount();
+  if (n === 0) {
+    modeHint.textContent = "Keine Karten heute fällig — wir zeigen die nächst-fälligen (Smart Fallback). Tab zum Aufdecken.";
+  } else {
+    modeHint.textContent = n + " Karte" + (n === 1 ? "" : "n") + " heute fällig. Tab zum Aufdecken — Audio startet nicht automatisch.";
+  }
 };
 document.addEventListener("keydown", function (e) {
   if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
@@ -2258,6 +2445,31 @@ async function pullCloudData() {
       if (s.main_sort) state.mainSort = s.main_sort;
       if (s.us_sort) state.usSort = s.us_sort;
       if (s.intro_counts && typeof s.intro_counts === "object") state.introCounts = s.intro_counts;
+      if (s.card_state && typeof s.card_state === "object") state.cardState = s.card_state;
+      // SRS Phase A: one-shot migration of existing ratings into card_state.
+      // Idempotent via settings.srs_phase_a_migrated flag — runs only on first
+      // login after deploying Phase A. Distributes due_at across the next 1/3/7/30
+      // days based on the existing rating so the user doesn't get a wall of due
+      // cards on day one.
+      if (!s.srs_phase_a_migrated) {
+        let migrated = 0;
+        for (const id in state.ratings) {
+          if (state.cardState[id]) continue; // already has SRS state — keep it
+          const r = state.ratings[id];
+          if (typeof SRS_INTERVALS[r] !== "number") continue;
+          const days = SRS_INTERVALS[r];
+          const today = isoToday();
+          state.cardState[id] = {
+            interval_days: days,
+            due_at: isoAddDays(today, days),
+            last_reviewed_at: today,
+          };
+          migrated++;
+        }
+        if (migrated > 0) console.info("[SRS] migrated " + migrated + " rated cards into card_state");
+        // Mark as done so this never runs again, even if cardState is later cleared
+        state._srsPhaseAMigrated = true;
+      }
       // Mirror to localStorage (cache for offline / next reload)
       localStorage.setItem("hl_ratings", JSON.stringify(state.ratings));
       localStorage.setItem("hl_mnemonics", JSON.stringify(state.mnemonics));
@@ -2266,6 +2478,7 @@ async function pullCloudData() {
       localStorage.setItem("hl_main_sort", state.mainSort);
       localStorage.setItem("hl_us_sort", state.usSort);
       localStorage.setItem("hl_intro_counts", JSON.stringify(state.introCounts));
+      localStorage.setItem("hl_card_state", JSON.stringify(state.cardState));
     }
     // User sentences
     const { data: sentences, error: sErr } = await sb
@@ -2306,6 +2519,10 @@ async function pushProfile() {
         main_sort: state.mainSort,
         us_sort: state.usSort,
         intro_counts: state.introCounts,
+        card_state: state.cardState,
+        // Set on first login post-Phase-A, prevents the migration block in
+        // pullCloudData from re-running on subsequent logins.
+        srs_phase_a_migrated: true,
       },
       updated_at: new Date().toISOString(),
     });
@@ -2472,6 +2689,10 @@ async function migrateIDBToStorage() {
 }
 
 // ===== Init =====
+// SRS Phase A: rebuild card_state from existing ratings if it's empty
+// (offline / pre-cloud-pull case). Idempotent.
+maybeMigrateCardStateLocal();
+
 buildCatFilter();
 buildNsCatPickers();
 renderNsRecent();
