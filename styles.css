@@ -905,6 +905,10 @@ body.recall .card.revealed .es {
 }
 body.recall .card:not(.revealed) .reveal-prompt { display: flex; }
 body.recall .toggle-wrap { opacity: 0.4; pointer-events: none; }
+/* Sterne-Filter-Chips haben in Recall keine Funktion mehr (SRS Phase A: Queue
+   kommt aus due_at, nicht aus Rating-Filter). Kategorie-Filter und Suche
+   greifen weiter. */
+body.recall .rating-filter { display: none; }
 
 /* Mnemonic panels */
 .mnemonic-panel {
