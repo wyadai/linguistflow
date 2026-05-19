@@ -36,8 +36,11 @@ const state = {
   apiKey: localStorage.getItem("hl_api_key") || "",
   elKey: localStorage.getItem("hl_el_key") || "",
   elVoice: localStorage.getItem("hl_el_voice") || "21m00Tcm4TlvDq8ikWAM",
+  // Sort for the Meine-Sätze page (newest/oldest/random).
+  // Persisted under legacy key `hl_us_sort` for backward compat.
   usSort: localStorage.getItem("hl_us_sort") || "newest",
-  usTab: "active",
+  // Filter for the Meine-Sätze page: "translated" | "pending" | "archived"
+  saetzeFilter: "translated",
   mainSort: localStorage.getItem("hl_main_sort") || "oldest",
 };
 
@@ -248,8 +251,6 @@ const pasteTranslationsEl = document.getElementById("paste-translations");
 const applyTranslationsBtn = document.getElementById("apply-translations-btn");
 const pendingCountEl = document.getElementById("pending-count");
 const toastEl = document.getElementById("toast");
-const userSentencesListEl = document.getElementById("user-sentences-list");
-const mySentencesCountEl = document.getElementById("my-sentences-count");
 const elKeyInput = document.getElementById("el-key-input");
 const elVoiceInput = document.getElementById("el-voice-input");
 const elKeyStatus = document.getElementById("el-key-status");
@@ -257,11 +258,16 @@ const saveElBtn = document.getElementById("save-el-btn");
 const clearElBtn = document.getElementById("clear-el-btn");
 const generateAllAudioBtn = document.getElementById("generate-all-audio-btn");
 const generateAllAudioText = document.getElementById("generate-all-audio-text");
-const usSortEl = document.getElementById("us-sort");
-const usTabActive = document.getElementById("us-tab-active");
-const usTabArchived = document.getElementById("us-tab-archived");
-const usCountActive = document.getElementById("us-count-active");
-const usCountArchived = document.getElementById("us-count-archived");
+// Meine-Sätze page elements
+const sideSaetzeLink = document.getElementById("side-saetze-link");
+const saetzePage = document.getElementById("saetze-page");
+const saetzeBackBtn = document.getElementById("saetze-back-btn");
+const saetzeListEl = document.getElementById("saetze-list");
+const saetzeEmptyEl = document.getElementById("saetze-empty");
+const saetzeEmptyTextEl = document.getElementById("saetze-empty-text");
+const saetzeFooterInfoEl = document.getElementById("saetze-footer-info");
+const saetzeFilterEl = document.getElementById("saetze-filter");
+const saetzeSortEl = document.getElementById("saetze-sort");
 const mainSortEl = document.getElementById("main-sort");
 const apiKeyInput = document.getElementById("api-key-input");
 const apiKeyStatus = document.getElementById("api-key-status");
@@ -1655,6 +1661,8 @@ function prev() {
 }
 audioEl.addEventListener("ended", function () {
   if (state.mode === "car") return; // Car Mode hat einen eigenen Handler
+  // Saetze-Page preview: ignore main-player auto-advance.
+  if (state._saetzePreviewActive) { state._saetzePreviewActive = false; return; }
   state.repeatCount++;
   if (state.repeatCount < state.repeat) { play(); }
   else {
@@ -1803,25 +1811,56 @@ document.addEventListener("keydown", function (e) {
   else if (e.code === "Escape") closeSidePanel();
 });
 
-// ===== "Meine Sätze" overview (sidebar list of user-added sentences) =====
-function buildUserSentencesList() {
-  userSentencesListEl.innerHTML = "";
-  const allActive = state.userSentences.filter(function (s) { return !s.archived; });
-  const allArchived = state.userSentences.filter(function (s) { return s.archived; });
-  usCountActive.textContent = allActive.length;
-  usCountArchived.textContent = allArchived.length;
-  const total = state.userSentences.length;
-  mySentencesCountEl.textContent = total > 0 ? total : "";
+// =====================================================================
+// MEINE SÄTZE — eigene Seite (Phase 0 Redesign, ersetzt die alte Sidebar-
+// Sektion). Bedient sich aus state.userSentences und filtert nach
+// state.saetzeFilter ∈ { "translated" | "pending" | "archived" }.
+// =====================================================================
 
-  const list = state.usTab === "archived" ? allArchived : allActive;
-  if (list.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "user-sentence-empty";
-    empty.textContent = state.usTab === "archived" ? "Archiv ist leer." : "Noch keine eigenen Sätze.";
-    userSentencesListEl.appendChild(empty);
-    return;
+function getSaetzeForFilter(filter) {
+  if (filter === "archived") {
+    return state.userSentences.filter(function (s) { return s.archived; });
+  }
+  if (filter === "pending") {
+    return state.userSentences.filter(function (s) { return !s.archived && s.pending; });
+  }
+  // "translated" (default): non-archived and non-pending (Übersetzung vorhanden).
+  return state.userSentences.filter(function (s) { return !s.archived && !s.pending; });
+}
+
+// Mode-driven empty-state copy.
+const SAETZE_EMPTY_COPY = {
+  translated: "Noch keine übersetzten Sätze. Füge welche über „Neuer Satz“ hinzu.",
+  pending: "Keine ausstehenden Übersetzungen. Alles ist übersetzt.",
+  archived: "Archiv ist leer.",
+};
+
+function renderSaetzePage() {
+  // No-op if the page DOM isn't there (defensive — pre-init or test scenarios).
+  if (!saetzeListEl) return;
+  saetzeListEl.innerHTML = "";
+
+  const filter = state.saetzeFilter || "translated";
+  const list = getSaetzeForFilter(filter);
+
+  // Update filter-tab active state every render (handles deep-link / external state-set).
+  if (saetzeFilterEl) {
+    const tabs = saetzeFilterEl.querySelectorAll(".saetze-filter-tab");
+    for (const t of tabs) {
+      if (t.getAttribute("data-saetze-filter") === filter) t.classList.add("active");
+      else t.classList.remove("active");
+    }
   }
 
+  if (list.length === 0) {
+    if (saetzeEmptyEl) saetzeEmptyEl.style.display = "block";
+    if (saetzeEmptyTextEl) saetzeEmptyTextEl.textContent = SAETZE_EMPTY_COPY[filter] || SAETZE_EMPTY_COPY.translated;
+    if (saetzeFooterInfoEl) saetzeFooterInfoEl.textContent = "";
+    return;
+  }
+  if (saetzeEmptyEl) saetzeEmptyEl.style.display = "none";
+
+  // Sort (newest / oldest / random)
   let sorted = list.slice();
   if (state.usSort === "newest") sorted.sort(function (a, b) { return b.id - a.id; });
   else if (state.usSort === "oldest") sorted.sort(function (a, b) { return a.id - b.id; });
@@ -1833,74 +1872,246 @@ function buildUserSentencesList() {
   }
 
   for (const s of sorted) {
-    const row = document.createElement("div");
-    row.className = "user-sentence-row" + (s.pending ? " pending" : "") + (s.archived ? " archived" : "");
+    saetzeListEl.appendChild(renderSaetzeCard(s));
+  }
 
-    const idEl = document.createElement("span");
-    idEl.className = "us-id";
-    idEl.textContent = "#" + s.id;
-    row.appendChild(idEl);
-
-    const textEl = document.createElement("div");
-    textEl.className = "us-text";
-    textEl.textContent = s.de;
-    textEl.title = s.de + (s.es ? " — " + s.es : "");
-    row.appendChild(textEl);
-
-    const statusEl = document.createElement("span");
-    statusEl.className = "us-status";
-    statusEl.textContent = s.archived ? "archiviert" : (s.pending ? "ausstehend" : (hasAudio(s) ? "✓ audio" : "übersetzt"));
-    row.appendChild(statusEl);
-
-    const actions = document.createElement("div");
-    actions.className = "us-actions-group";
-
-    if (s.archived) {
-      const restoreBtn = document.createElement("button");
-      restoreBtn.className = "us-action-btn restore";
-      restoreBtn.title = "Wiederherstellen";
-      restoreBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
-      restoreBtn.onclick = function () { restoreUserSentence(s.id); };
-      actions.appendChild(restoreBtn);
-
-      const delPermBtn = document.createElement("button");
-      delPermBtn.className = "us-action-btn del-perm";
-      delPermBtn.title = "Endgültig löschen";
-      delPermBtn.innerHTML = ICON_TRASH;
-      delPermBtn.onclick = function () { permanentDeleteUserSentence(s.id); };
-      actions.appendChild(delPermBtn);
-    } else {
-      const delBtn = document.createElement("button");
-      delBtn.className = "us-action-btn";
-      delBtn.title = s.pending ? "Löschen" : "Ins Archiv verschieben";
-      delBtn.innerHTML = ICON_TRASH;
-      delBtn.onclick = function () { archiveOrDelete(s.id); };
-      actions.appendChild(delBtn);
-    }
-
-    row.appendChild(actions);
-    userSentencesListEl.appendChild(row);
+  // Footer info — small running count, no menu-level counter.
+  if (saetzeFooterInfoEl) {
+    const totalUser = state.userSentences.length;
+    saetzeFooterInfoEl.textContent = list.length + " von " + totalUser + " Sätzen";
   }
 }
 
-usTabActive.onclick = function () {
-  state.usTab = "active";
-  usTabActive.classList.add("active");
-  usTabArchived.classList.remove("active");
-  buildUserSentencesList();
-};
-usTabArchived.onclick = function () {
-  state.usTab = "archived";
-  usTabArchived.classList.add("active");
-  usTabActive.classList.remove("active");
-  buildUserSentencesList();
-};
-usSortEl.onchange = function () {
-  state.usSort = usSortEl.value;
-  localStorage.setItem("hl_us_sort", state.usSort);
-  queuePushProfile();
-  buildUserSentencesList();
-};
+function renderSaetzeCard(s) {
+  const card = document.createElement("article");
+  card.className = "saetze-card" + (s.pending ? " pending" : "") + (s.archived ? " archived" : "");
+  card.setAttribute("data-id", String(s.id));
+
+  // === Main column (meta + text) ===
+  const main = document.createElement("div");
+  main.className = "saetze-card-main";
+
+  const meta = document.createElement("div");
+  meta.className = "saetze-card-meta";
+
+  const idEl = document.createElement("span");
+  idEl.className = "saetze-card-id";
+  idEl.textContent = "#" + s.id;
+  meta.appendChild(idEl);
+
+  const statusEl = document.createElement("span");
+  statusEl.className = "saetze-status";
+  if (s.archived) {
+    statusEl.classList.add("archived");
+    statusEl.textContent = "Archiviert";
+  } else if (s.pending) {
+    statusEl.classList.add("pending");
+    statusEl.textContent = "Ausstehend";
+  } else if (hasAudio(s)) {
+    statusEl.classList.add("has-audio");
+    statusEl.textContent = "Audio";
+  } else {
+    statusEl.classList.add("no-audio");
+    statusEl.textContent = "Kein Audio";
+  }
+  meta.appendChild(statusEl);
+
+  if (Array.isArray(s.cats) && s.cats.length > 0) {
+    const catsEl = document.createElement("span");
+    catsEl.className = "saetze-card-cats";
+    catsEl.textContent = s.cats.join(" · ");
+    meta.appendChild(catsEl);
+  }
+
+  main.appendChild(meta);
+
+  // ES on top (primary content) — falls back to a hint if pending.
+  const esEl = document.createElement("p");
+  esEl.className = "saetze-card-es";
+  if (s.es) {
+    esEl.textContent = s.es;
+  } else {
+    esEl.textContent = "— wird übersetzt —";
+  }
+  main.appendChild(esEl);
+
+  const deEl = document.createElement("p");
+  deEl.className = "saetze-card-de";
+  deEl.textContent = s.de;
+  main.appendChild(deEl);
+
+  card.appendChild(main);
+
+  // === Actions column ===
+  const actions = document.createElement("div");
+  actions.className = "saetze-card-actions";
+
+  if (s.archived) {
+    // Restore + permanent delete
+    const restoreBtn = document.createElement("button");
+    restoreBtn.className = "saetze-action-btn accent";
+    restoreBtn.title = "Wiederherstellen";
+    restoreBtn.setAttribute("aria-label", "Wiederherstellen");
+    restoreBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">restore</span>';
+    restoreBtn.onclick = function () { restoreUserSentence(s.id); };
+    actions.appendChild(restoreBtn);
+
+    const delPermBtn = document.createElement("button");
+    delPermBtn.className = "saetze-action-btn danger";
+    delPermBtn.title = "Endgültig löschen";
+    delPermBtn.setAttribute("aria-label", "Endgültig löschen");
+    delPermBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">delete_forever</span>';
+    delPermBtn.onclick = function () { permanentDeleteUserSentence(s.id); };
+    actions.appendChild(delPermBtn);
+  } else if (s.pending) {
+    // Pending: only a delete button (translation happens via main "Übersetzen" flow).
+    const delBtn = document.createElement("button");
+    delBtn.className = "saetze-action-btn danger";
+    delBtn.title = "Löschen";
+    delBtn.setAttribute("aria-label", "Löschen");
+    delBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">delete</span>';
+    delBtn.onclick = function () { archiveOrDelete(s.id); };
+    actions.appendChild(delBtn);
+  } else {
+    // Translated (non-archived): play / regen-or-gen audio / archive
+    if (hasAudio(s)) {
+      const playBtn = document.createElement("button");
+      playBtn.className = "saetze-action-btn";
+      playBtn.title = "Abspielen";
+      playBtn.setAttribute("aria-label", "Abspielen");
+      playBtn.innerHTML = '<span class="material-symbols-outlined fill" style="font-size:18px;">play_arrow</span>';
+      playBtn.onclick = function () { playSaetzeAudio(s); };
+      actions.appendChild(playBtn);
+
+      const regenBtn = document.createElement("button");
+      regenBtn.className = "saetze-action-btn";
+      regenBtn.title = "Audio neu generieren";
+      regenBtn.setAttribute("aria-label", "Audio neu generieren");
+      regenBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">refresh</span>';
+      regenBtn.onclick = function () { regenerateAudioForSaetze(s.id, regenBtn); };
+      actions.appendChild(regenBtn);
+    } else {
+      const genBtn = document.createElement("button");
+      genBtn.className = "saetze-action-pill";
+      genBtn.title = "Audio generieren";
+      genBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px;">volume_up</span> Audio';
+      genBtn.onclick = function () { regenerateAudioForSaetze(s.id, genBtn); };
+      actions.appendChild(genBtn);
+    }
+
+    const archBtn = document.createElement("button");
+    archBtn.className = "saetze-action-btn danger";
+    archBtn.title = "Ins Archiv verschieben";
+    archBtn.setAttribute("aria-label", "Ins Archiv verschieben");
+    archBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">archive</span>';
+    archBtn.onclick = function () { archiveOrDelete(s.id); };
+    actions.appendChild(archBtn);
+  }
+
+  card.appendChild(actions);
+  return card;
+}
+
+// Plays audio for a single Meine-Sätze card. Does NOT touch the main player
+// state (no current-sentence change, no autoplay queue) — pure preview.
+// state._saetzePreviewActive prevents the global "ended" handler from
+// auto-advancing the main player after the preview clip finishes.
+function playSaetzeAudio(s) {
+  if (!audioEl) return;
+  const src = audioSrcFor(s);
+  if (!src) { showToast("Kein Audio für diesen Satz."); return; }
+  try {
+    state._saetzePreviewActive = true;
+    audioEl.src = src;
+    audioEl.playbackRate = 1.0;
+    audioEl.play().catch(function (err) {
+      state._saetzePreviewActive = false;
+      console.error("Saetze play failed", err);
+    });
+  } catch (e) {
+    state._saetzePreviewActive = false;
+    console.error(e);
+  }
+}
+
+// Regenerates (or first-time generates) audio for a user-sentence on the
+// Meine-Sätze page. Shows a temporary spinner state on the button.
+async function regenerateAudioForSaetze(id, btn) {
+  if (!btn) return;
+  const originalHTML = btn.innerHTML;
+  const originalDisabled = btn.disabled;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="material-symbols-outlined saetze-spin" style="font-size:18px;">refresh</span>';
+  try {
+    const ok = await generateAudioFor(id);
+    if (ok) {
+      showToast("Audio generiert.");
+      renderSaetzePage();
+      renderCards();
+      updateGenerateAllAudioBtn();
+    } else {
+      btn.innerHTML = originalHTML;
+      btn.disabled = originalDisabled;
+    }
+  } catch (e) {
+    showToast("Audio-Fehler: " + e.message, 4000);
+    btn.innerHTML = originalHTML;
+    btn.disabled = originalDisabled;
+  }
+}
+
+// Filter-tab + sort handlers
+if (saetzeFilterEl) {
+  saetzeFilterEl.addEventListener("click", function (e) {
+    const tab = e.target.closest(".saetze-filter-tab");
+    if (!tab) return;
+    const f = tab.getAttribute("data-saetze-filter");
+    if (!f) return;
+    state.saetzeFilter = f;
+    renderSaetzePage();
+  });
+}
+if (saetzeSortEl) {
+  saetzeSortEl.onchange = function () {
+    state.usSort = saetzeSortEl.value;
+    localStorage.setItem("hl_us_sort", state.usSort);
+    queuePushProfile();
+    renderSaetzePage();
+  };
+}
+
+// Page open/close — same body-class pattern as the New-Sentence page.
+let _modeBeforeSaetze = null;
+function openSaetzePage() {
+  // Remember current mode to restore on close
+  _modeBeforeSaetze = document.body.classList.contains("focus")
+    ? "focus"
+    : (document.body.classList.contains("recall") ? "recall" : "listen");
+  document.body.classList.remove("focus");
+  document.body.classList.remove("recall");
+  document.body.classList.remove("new-sentence");  // mutual exclusion
+  document.body.classList.add("saetze");
+  if (sideSaetzeLink) sideSaetzeLink.classList.add("active");
+  closeSidePanel();
+  renderSaetzePage();
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+function closeSaetzePage() {
+  document.body.classList.remove("saetze");
+  if (sideSaetzeLink) sideSaetzeLink.classList.remove("active");
+  if (_modeBeforeSaetze === "focus" && typeof setFocusModeActive === "function") {
+    setFocusModeActive();
+  } else if (_modeBeforeSaetze === "recall") {
+    document.body.classList.add("recall");
+  }
+  _modeBeforeSaetze = null;
+}
+if (sideSaetzeLink) sideSaetzeLink.onclick = function () { openSaetzePage(); };
+if (saetzeBackBtn) saetzeBackBtn.onclick = function () { closeSaetzePage(); };
+
+// Back-compat shim: anything in this file that still calls the old function
+// goes through the new one (call-sites are renamed below in the same diff).
+function buildUserSentencesList() { renderSaetzePage(); }
 
 
 // Main sort handler
@@ -1991,7 +2202,7 @@ async function onLogin() {
   if (typeof buildIntroCatSelect === "function") buildIntroCatSelect();
   if (typeof updateIntroModeBtn === "function") updateIntroModeBtn();
   if (mainSortEl) mainSortEl.value = state.mainSort;
-  if (usSortEl) usSortEl.value = state.usSort;
+  if (saetzeSortEl) saetzeSortEl.value = state.usSort;
   // Defeat any browser autofill that may have polluted the search box
   state.search = "";
   if (searchInput) searchInput.value = "";
@@ -2260,7 +2471,7 @@ buildNsCatPickers();
 renderNsRecent();
 updateNsMultiCount();
 buildRatingFilter();
-usSortEl.value = state.usSort;
+if (saetzeSortEl) saetzeSortEl.value = state.usSort;
 mainSortEl.value = state.mainSort;
 applyFilter();
 updatePlayer();

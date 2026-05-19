@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=phase3-1">
+<link rel="stylesheet" href="styles.css?v=phase0-saetzepage">
 </head>
 <body>
   <!-- ===== Login screen (visible when not authenticated) ===== -->
@@ -57,6 +57,12 @@
       <button class="side-section-link" id="side-new-sentence-link">
         <span class="side-sum-icon material-symbols-outlined">add_circle</span>
         Neuen Satz hinzufügen
+        <span class="material-symbols-outlined side-section-link-arrow" style="font-size:16px;">arrow_forward</span>
+      </button>
+
+      <button class="side-section-link" id="side-saetze-link">
+        <span class="side-sum-icon material-symbols-outlined">edit_note</span>
+        Meine Sätze
         <span class="material-symbols-outlined side-section-link-arrow" style="font-size:16px;">arrow_forward</span>
       </button>
 
@@ -137,28 +143,6 @@
             <span id="intro-send-cat-text">In Einführung schieben</span>
           </button>
           <small class="side-tiny">Alle Karten dieser Kategorie werden zurück in den Einführungs-Pool gesetzt (intro_count = 0). Bewertungen bleiben erhalten.</small>
-        </div>
-      </details>
-
-      <details class="side-section" id="my-sentences-section">
-        <summary>
-          <span class="side-sum-icon material-symbols-outlined">edit_note</span>
-          Meine Sätze
-          <span id="my-sentences-count" class="side-badge"></span>
-        </summary>
-        <div class="side-section-content">
-          <div class="us-toolbar">
-            <div class="us-tabs">
-              <button class="us-tab active" data-tab="active" id="us-tab-active">Aktiv <span class="us-tab-count" id="us-count-active">0</span></button>
-              <button class="us-tab" data-tab="archived" id="us-tab-archived">Archiv <span class="us-tab-count" id="us-count-archived">0</span></button>
-            </div>
-            <select id="us-sort" class="us-sort">
-              <option value="newest">Neueste zuerst</option>
-              <option value="oldest">Älteste zuerst</option>
-              <option value="random">Zufällig</option>
-            </select>
-          </div>
-          <div id="user-sentences-list"></div>
         </div>
       </details>
 
@@ -764,6 +748,47 @@
 
       </div>
 
+      <!-- ===== Meine Sätze (eigene Seite) ===== -->
+      <div class="saetze-page" id="saetze-page">
+
+        <div class="saetze-header">
+          <button class="saetze-back-btn" id="saetze-back-btn" title="Zurück">
+            <span class="material-symbols-outlined" style="font-size:20px;">arrow_back</span>
+            <span class="saetze-back-label">Zurück</span>
+          </button>
+          <div class="saetze-header-title">
+            <h2>Meine Sätze</h2>
+            <p>Alle Sätze, die du selbst hinzugefügt hast — übersetzt, ausstehend und archiviert.</p>
+          </div>
+        </div>
+
+        <div class="saetze-toolbar">
+          <div class="saetze-filter" id="saetze-filter">
+            <button class="saetze-filter-tab active" data-saetze-filter="translated">Übersetzt</button>
+            <button class="saetze-filter-tab" data-saetze-filter="pending">Ausstehend</button>
+            <button class="saetze-filter-tab" data-saetze-filter="archived">Archiv</button>
+          </div>
+          <div class="saetze-sort-wrap">
+            <span class="material-symbols-outlined" style="font-size:16px;">sort</span>
+            <select id="saetze-sort" class="saetze-sort">
+              <option value="newest">Neueste zuerst</option>
+              <option value="oldest">Älteste zuerst</option>
+              <option value="random">Zufällig</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="saetze-list" id="saetze-list"></div>
+
+        <div class="saetze-empty" id="saetze-empty" style="display:none;">
+          <span class="material-symbols-outlined" style="font-size:32px;">inbox</span>
+          <p id="saetze-empty-text">Noch keine eigenen Sätze.</p>
+        </div>
+
+        <div class="saetze-footer-info" id="saetze-footer-info"></div>
+
+      </div>
+
     </main>
   </div>
 
@@ -806,7 +831,7 @@
   <audio id="audio" preload="none"></audio>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-  <script src="data.js?v=phase3-1"></script>
-  <script src="app.js?v=phase3-1"></script>
+  <script src="data.js?v=phase0-saetzepage"></script>
+  <script src="app.js?v=phase0-saetzepage"></script>
 </body>
 </html>
