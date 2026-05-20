@@ -2847,7 +2847,9 @@ async function onLogin() {
   updatePendingBadge();
   // Reslice intro pool to max INTRO_POOL_SIZE after cloud data has loaded
   // (overrides the local-only reslicing that ran at init before login).
-  if (typeof maybeReslicePool === "function") maybeReslicePool();
+  try {
+    if (typeof maybeReslicePool === "function") maybeReslicePool();
+  } catch (e) { console.error("[pullCloudData] maybeReslicePool failed:", e); }
   // Refresh the Einführung dropdown now that user_sentences + intro_counts are loaded
   if (typeof buildIntroCatSelect === "function") buildIntroCatSelect();
   if (typeof updateIntroModeBtn === "function") updateIntroModeBtn();
@@ -2873,11 +2875,25 @@ document.getElementById("login-form").addEventListener("submit", async function 
   errEl.textContent = "";
   btn.disabled = true;
   btn.textContent = "Anmelden...";
+  console.info("[login] signInWithPassword starting…");
   try {
-    const { error } = await sb.auth.signInWithPassword({ email, password });
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
     if (error) throw error;
-    // onAuthStateChange handles the rest
+    console.info("[login] signInWithPassword OK, awaiting onAuthStateChange…");
+    // onAuthStateChange handles the rest. Aber als Sicherheits-Fallback: wenn das
+    // onAuthStateChange-Callback aus irgendwelchen Gründen nicht feuert (iOS PWA
+    // Quirks, beobachtet), starten wir onLogin direkt — currentUser ist schon
+    // gesetzt via sb.auth.getSession() im nächsten Tick, sonst greifen wir auf
+    // data.user zurück.
+    setTimeout(function () {
+      if (!document.body.classList.contains("authenticated")) {
+        console.warn("[login] onAuthStateChange did not fire within 2s — kicking onLogin manually");
+        if (!currentUser && data && data.user) currentUser = data.user;
+        if (currentUser && typeof onLogin === "function") onLogin();
+      }
+    }, 2000);
   } catch (err) {
+    console.error("[login] failed:", err);
     errEl.textContent = "Login fehlgeschlagen: " + err.message;
     btn.disabled = false;
     btn.textContent = "Anmelden";
@@ -3166,12 +3182,19 @@ async function migrateIDBToStorage() {
 }
 
 // ===== Init =====
-// SRS Phase A: rebuild card_state from existing ratings if it's empty
-// (offline / pre-cloud-pull case). Idempotent.
-maybeMigrateCardStateLocal();
+// Migrationen defensiv wrappen — wenn eine wegen unerwarteter Daten-Form
+// crashen würde, soll der Rest der Init (vor allem Auth/Login!) trotzdem
+// durchlaufen. Login-blockierende Init-Fehler sind das schlimmste UX-Problem.
+try {
+  // SRS Phase A: rebuild card_state from existing ratings if it's empty
+  // (offline / pre-cloud-pull case). Idempotent.
+  maybeMigrateCardStateLocal();
+} catch (e) { console.error("[init] maybeMigrateCardStateLocal failed:", e); }
 
-// Einführungs-Pool auf 5 zurückslicen falls aus alter Logik mehr drin sind.
-if (typeof maybeReslicePool === "function") maybeReslicePool();
+try {
+  // Einführungs-Pool auf 5 zurückslicen falls aus alter Logik mehr drin sind.
+  if (typeof maybeReslicePool === "function") maybeReslicePool();
+} catch (e) { console.error("[init] maybeReslicePool failed:", e); }
 
 buildCatFilter();
 buildNsCatPickers();
