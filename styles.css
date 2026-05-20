@@ -3081,6 +3081,66 @@ body.stats .stats-page { display: block; margin-top: 4px; }
   margin: 0 0 10px;
 }
 
+/* Aktuell in Einführung — kompakte Karten-Liste mit Progress-Dots */
+.stats-intro-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.stats-intro-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-low);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+.stats-intro-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.stats-intro-de {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stats-intro-es {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stats-intro-dots {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.stats-intro-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--outline-variant);
+}
+.stats-intro-dot.filled {
+  background: var(--accent);
+}
+.stats-intro-empty {
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--secondary);
+  font-size: 13px;
+}
+
 /* Heatmap */
 .stats-heatmap-card { padding: 16px 18px; }
 .stats-heatmap {

@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=phase4-sidebar-polish">
+<link rel="stylesheet" href="styles.css?v=phase4-intro-card">
 </head>
 <body>
   <!-- ===== Login screen (visible when not authenticated) ===== -->
@@ -842,6 +842,21 @@
           </div>
         </div>
 
+        <!-- Aktuell in Einführung — zeigt die 5 Pool-Karten + Backlog-Hinweis -->
+        <div class="stats-card" id="stats-intro-card">
+          <div class="stats-card-header">
+            <h2>Aktuell in Einführung</h2>
+            <span class="stats-card-sub" id="stats-intro-sub">—</span>
+          </div>
+          <div class="stats-intro-list" id="stats-intro-list"></div>
+          <div class="stats-card-footer">
+            <button class="stats-cta-btn" id="stats-intro-cta">
+              <span class="material-symbols-outlined" style="font-size:16px;">play_arrow</span>
+              Einführung starten
+            </button>
+          </div>
+        </div>
+
         <!-- Heatmap -->
         <h3 class="stats-section-title">Aktivität · letzte 30 Tage</h3>
         <div class="stats-card stats-heatmap-card">
@@ -983,7 +998,7 @@
   <audio id="audio" preload="none"></audio>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-  <script src="data.js?v=phase4-sidebar-polish"></script>
-  <script src="app.js?v=phase4-sidebar-polish"></script>
+  <script src="data.js?v=phase4-intro-card"></script>
+  <script src="app.js?v=phase4-intro-card"></script>
 </body>
 </html>

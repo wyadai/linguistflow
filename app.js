@@ -2488,6 +2488,71 @@ function renderStatsPage() {
   if (statsOverdueNumEl) statsOverdueNumEl.textContent = overdue;
   if (statsTodayNumEl) statsTodayNumEl.textContent = dueToday;
 
+  // === Aktuell in Einführung ===
+  const introListEl = document.getElementById("stats-intro-list");
+  const introSubEl = document.getElementById("stats-intro-sub");
+  if (introListEl) {
+    introListEl.innerHTML = "";
+    // Pool-Karten: stage === "intro" (intro_count 1-4)
+    const poolCards = allSentences().filter(function (s) {
+      if (s.archived || s.pending || !s.es) return false;
+      return stageOf(s.id) === "intro";
+    });
+    // Sortiere nach intro_count desc (reifste zuerst, wie in der Session)
+    poolCards.sort(function (a, b) {
+      return getIntroCount(b.id) - getIntroCount(a.id);
+    });
+
+    // Backlog-Anzahl für den Sub-Header
+    let backlogCount = 0;
+    for (const s of allSentences()) {
+      if (s.archived || s.pending || !s.es) continue;
+      if (stageOf(s.id) === "backlog") backlogCount++;
+    }
+    if (introSubEl) {
+      const parts = [];
+      parts.push(poolCards.length + " im Pool");
+      if (backlogCount > 0) parts.push(backlogCount + " warten im Backlog");
+      introSubEl.textContent = parts.join(" · ");
+    }
+
+    if (poolCards.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "stats-intro-empty";
+      empty.textContent = backlogCount > 0
+        ? "Pool leer — starte Einführung, dann werden 5 Karten aus dem Backlog geladen."
+        : "Keine Karten in Einführung.";
+      introListEl.appendChild(empty);
+    } else {
+      for (const s of poolCards.slice(0, 5)) {
+        const count = getIntroCount(s.id);
+        const row = document.createElement("div");
+        row.className = "stats-intro-row";
+        const text = document.createElement("div");
+        text.className = "stats-intro-text";
+        const de = document.createElement("div");
+        de.className = "stats-intro-de";
+        de.textContent = s.de;
+        const es = document.createElement("div");
+        es.className = "stats-intro-es";
+        es.textContent = s.es;
+        text.appendChild(de);
+        text.appendChild(es);
+        row.appendChild(text);
+        const dots = document.createElement("div");
+        dots.className = "stats-intro-dots";
+        dots.title = count + " / 5 Wiederholungen";
+        for (let i = 0; i < 5; i++) {
+          const dot = document.createElement("span");
+          dot.className = "stats-intro-dot" + (i < count ? " filled" : "");
+          dots.appendChild(dot);
+        }
+        row.appendChild(dots);
+        introListEl.appendChild(row);
+      }
+    }
+  }
+
   // === Heatmap (30 Tage) ===
   if (statsHeatmapEl) {
     statsHeatmapEl.innerHTML = "";
@@ -2581,6 +2646,15 @@ if (statsRecallListCtaBtn) {
   statsRecallListCtaBtn.onclick = function () {
     closeStatsPage();
     if (recallBtn) recallBtn.click();
+  };
+}
+
+// CTA der "Aktuell in Einführung"-Card: öffnet Einführungs-Session direkt
+const statsIntroCtaBtn = document.getElementById("stats-intro-cta");
+if (statsIntroCtaBtn) {
+  statsIntroCtaBtn.onclick = function () {
+    closeStatsPage();
+    if (introBtn && !introBtn.disabled) introBtn.click();
   };
 }
 
@@ -2771,6 +2845,9 @@ async function onLogin() {
   updateAutoplayUI();
   buildUserSentencesList();
   updatePendingBadge();
+  // Reslice intro pool to max INTRO_POOL_SIZE after cloud data has loaded
+  // (overrides the local-only reslicing that ran at init before login).
+  if (typeof maybeReslicePool === "function") maybeReslicePool();
   // Refresh the Einführung dropdown now that user_sentences + intro_counts are loaded
   if (typeof buildIntroCatSelect === "function") buildIntroCatSelect();
   if (typeof updateIntroModeBtn === "function") updateIntroModeBtn();
@@ -3092,6 +3169,9 @@ async function migrateIDBToStorage() {
 // SRS Phase A: rebuild card_state from existing ratings if it's empty
 // (offline / pre-cloud-pull case). Idempotent.
 maybeMigrateCardStateLocal();
+
+// Einführungs-Pool auf 5 zurückslicen falls aus alter Logik mehr drin sind.
+if (typeof maybeReslicePool === "function") maybeReslicePool();
 
 buildCatFilter();
 buildNsCatPickers();
@@ -4214,8 +4294,12 @@ const introSummaryStatsEl = document.getElementById("intro-summary-stats");
 const introSummaryDoneBtn = document.getElementById("intro-summary-done");
 const introSummaryMoreBtn = document.getElementById("intro-summary-more");
 
-// Build the session queue: all "intro" (1-4) cards + up to 5 "backlog" (0) cards.
-// Backlog cards get intro_count = 1 on entry (the "free" first showing).
+// Glossika-Style Einführungs-Pool: max INTRO_POOL_SIZE Karten gleichzeitig
+// aktiv. Sind alle 5 graduiert (intro_count → 5), kommen automatisch beim
+// nächsten Session-Start 5 frische aus dem Backlog rein. Schafft eine
+// gestaffelte Einführung statt einer überfordernden Mass-Promotion.
+const INTRO_POOL_SIZE = 5;
+
 function buildIntroQueue() {
   const introStage = [];
   const backlog = [];
@@ -4225,20 +4309,54 @@ function buildIntroQueue() {
     if (stage === "intro") introStage.push(s.id);
     else if (stage === "backlog") backlog.push(s.id);
   }
-  // Shuffle each pool
-  function shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
+
+  // Priorisiere die reifsten intro-stage Karten (intro_count desc) — die sind
+  // näher an Graduierung und sollten zuerst durch.
+  introStage.sort(function (a, b) {
+    return getIntroCount(b) - getIntroCount(a);
+  });
+
+  // Take up to POOL_SIZE intro-stage cards
+  let pool = introStage.slice(0, INTRO_POOL_SIZE);
+
+  // Wenn Pool zu klein, mit Backlog auffüllen
+  if (pool.length < INTRO_POOL_SIZE) {
+    // Shuffle backlog für Zufalls-Auswahl
+    for (let i = backlog.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+      const t = backlog[i]; backlog[i] = backlog[j]; backlog[j] = t;
     }
-    return arr;
+    const need = INTRO_POOL_SIZE - pool.length;
+    const newcomers = backlog.slice(0, need);
+    for (const id of newcomers) setIntroCount(id, 1);
+    pool = pool.concat(newcomers);
   }
-  shuffle(introStage);
-  shuffle(backlog);
-  // Take up to 5 backlog cards, promote them to intro_count = 1
-  const newcomers = backlog.slice(0, 5);
-  for (const id of newcomers) setIntroCount(id, 1);
-  return introStage.concat(newcomers);
+
+  // Pool selbst gemischt durchgehen (sonst kämen immer die reifsten zuerst)
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+  }
+  return pool;
+}
+
+// Einmalige Migration: wenn der User aus der alten unbegrenzten Logik mehr als
+// INTRO_POOL_SIZE Karten in intro-stage hat, schiebe die unreifsten zurück zu
+// backlog. Idempotent — läuft jedes Mal, ist aber no-op sobald Pool stabil ist.
+function maybeReslicePool() {
+  const introStageIds = [];
+  for (const s of allSentences()) {
+    if (s.archived || s.pending || !s.es) continue;
+    if (stageOf(s.id) === "intro") introStageIds.push(s.id);
+  }
+  if (introStageIds.length <= INTRO_POOL_SIZE) return;
+  // Sort by intro_count desc — keep top POOL_SIZE, demote the rest
+  introStageIds.sort(function (a, b) {
+    return getIntroCount(b) - getIntroCount(a);
+  });
+  const toDemote = introStageIds.slice(INTRO_POOL_SIZE);
+  for (const id of toDemote) setIntroCount(id, 0);
+  console.info("[intro] resliced pool: " + toDemote.length + " Karten zurück in Backlog (Pool-Size " + INTRO_POOL_SIZE + ")");
 }
 
 function startIntroSession() {
@@ -4286,12 +4404,18 @@ function showIntroCard() {
   if (src) {
     introPlayBtn.disabled = false;
     introAudioHintEl.style.display = "none";
-    // Auto-play (user gesture chain: they clicked "Verstanden" or started session)
     audioEl.src = src;
     audioEl.playbackRate = state.speed || 1.0;
-    audioEl.play().catch(function (err) {
-      console.warn("Intro autoplay blocked:", err);
-    });
+    // Auto-Play nur ab der ZWEITEN Karte. Bei der ersten Karte (intro.idx === 0)
+    // wartet die App auf den manuellen Play-Klick — sonst startet Audio direkt
+    // beim Sidebar-Klick, was du nicht willst (und macht die Browser-Autoplay-
+    // Policy unhappy). Ab Karte 2 ist die User-Geste vom Verstanden/Nochmal-Klick
+    // direkt in der Chain → autoplay läuft sauber.
+    if (intro.idx > 0) {
+      audioEl.play().catch(function (err) {
+        console.warn("Intro autoplay blocked:", err);
+      });
+    }
   } else {
     introPlayBtn.disabled = true;
     introAudioHintEl.style.display = "block";
