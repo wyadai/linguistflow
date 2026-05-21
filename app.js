@@ -43,6 +43,15 @@ const state = {
   repeatCount: 0,
   revealed: new Set(),
   userSentences: loadJSON("hl_user_sentences", []),
+  // Szenen-Feature v1 (Mai 2026): zusammenhängende Dialog-Sätze als narrative
+  // Klammer. Jede Szene hat 5–15 Sätze, identifiziert über user_sentences.scene_id.
+  // Cache analog hl_user_sentences — debounced push, Pull bei Login.
+  // Shape: { id, title, setting, participants, status, practice_count,
+  //          last_practiced_at, source, created_at }
+  scenes: loadJSON("hl_scenes", []),
+  // UI-State der Szenen-Liste (persisted in localStorage als Komfort-Win)
+  scenesFilter: localStorage.getItem("hl_scenes_filter") || "active",
+  scenesSort: localStorage.getItem("hl_scenes_sort") || "last_practiced",
   newSentenceCats: new Set(),
   apiKey: localStorage.getItem("hl_api_key") || "",
   elKey: localStorage.getItem("hl_el_key") || "",
@@ -154,6 +163,7 @@ function saveJSON(key, val) {
   localStorage.setItem(key, JSON.stringify(val));
   if (!currentUser || _suppressSync) return;
   if (key === "hl_user_sentences") queuePushSentences();
+  else if (key === "hl_scenes") queuePushScenes();
   else if (key === "hl_ratings" || key === "hl_mnemonics" ||
            key === "hl_shown_mnemonics" || key === "hl_autoplay" ||
            key === "hl_intro_counts" ||
@@ -207,6 +217,36 @@ function nextUserId() {
   return maxId + 1;
 }
 function isUserSentence(id) { return id > DATA.sentences.length; }
+
+// ===== Szenen-Helpers =====
+// `scene_role === "other"` markiert Linien der Gegenseite in einer Szene
+// (z.B. die Antworten des Bäckers). Die hört der User nur, aber er soll sie
+// nicht aktiv produzieren — also: KEINE SRS-Queue, KEIN Recall, KEIN Fokus.
+// Dieser Helper bündelt alle "Karte ist im normalen Üben-Pool"-Checks an
+// einer Stelle, damit man die other-Filterung nicht an drei Stellen vergisst.
+function isPracticeable(s) {
+  if (!s) return false;
+  if (s.archived) return false;
+  if (s.pending) return false;
+  if (s.scene_role === "other") return false;
+  return true;
+}
+
+function getSceneById(id) {
+  if (!id) return null;
+  return state.scenes.find(function (x) { return x.id === id; }) || null;
+}
+
+// Eindeutige ID für neue Szenen — analog nextUserId().
+// Server-seitig wäre die DB-Sequenz autoritativ, aber wir vergeben IDs
+// client-seitig (wie bei user_sentences), weil der Code überall mit
+// numerischen Refs arbeitet und ein Round-Trip vor dem Insert das UI
+// verlangsamen würde.
+function nextSceneId() {
+  let maxId = 0;
+  for (const sc of state.scenes) if (sc.id > maxId) maxId = sc.id;
+  return maxId + 1;
+}
 
 // ===== DOM refs =====
 const audioEl = document.getElementById("audio");
@@ -335,6 +375,9 @@ function openNewSentencePage() {
   document.body.classList.remove("recall");
   document.body.classList.remove("saetze");
   document.body.classList.remove("stats");
+  document.body.classList.remove("scenes");
+  document.body.classList.remove("scene-detail");
+  document.body.classList.remove("scene-practice");
   document.body.classList.add("new-sentence");
   buildNsCatPickers();
   renderNsRecent();
@@ -817,6 +860,10 @@ function addUserSentence(opts) {
   if (!de) return null;
   const id = nextUserId();
   const es = (opts.es || "").trim();
+  // Szenen-Felder (v1) — alle drei optional, nullable in DB
+  const sceneId = opts.scene_id || null;
+  const sceneOrder = (typeof opts.scene_order === "number") ? opts.scene_order : null;
+  const sceneRole = opts.scene_role || null;
   state.userSentences.push({
     id: id,
     de: de,
@@ -824,6 +871,9 @@ function addUserSentence(opts) {
     cats: opts.cats ? [...opts.cats] : [],
     audio: "",
     pending: es ? false : true,
+    scene_id: sceneId,
+    scene_order: sceneOrder,
+    scene_role: sceneRole,
   });
   if (opts.mnemonic && opts.mnemonic.trim()) {
     state.mnemonics[id] = opts.mnemonic.trim();
@@ -831,9 +881,109 @@ function addUserSentence(opts) {
   }
   // New cards automatically enter the Einführungs-Pool (intro_count = 0 = backlog).
   // Existing cards keep their default of 5 (active) since they have no entry.
-  setIntroCount(id, 0);
+  // Other-Linien einer Szene werden NICHT in den Pool gelegt (sie sind nicht
+  // für SRS gedacht) — wir setzen sie auf 5 (active=neutral), damit sie aus
+  // Listen/Auto trotzdem hörbar bleiben, aber nicht im Einführungs-Modus
+  // erscheinen.
+  if (sceneRole === "other") {
+    setIntroCount(id, 5);
+  } else {
+    setIntroCount(id, 0);
+  }
   saveJSON("hl_user_sentences", state.userSentences);
   return id;
+}
+
+// ===== Szenen-Lifecycle: Erstellen + Update =====
+// addScene(opts) — legt eine neue Szene an. Reicht für Phase 2 (Import).
+// state.scenes wird mutiert, saveJSON triggert den Cloud-Push.
+// opts: { title, setting?, participants?, status?, source? }
+function addScene(opts) {
+  if (!opts || !opts.title) return null;
+  const id = nextSceneId();
+  const sc = {
+    id: id,
+    title: opts.title,
+    setting: opts.setting || "",
+    participants: opts.participants ? [...opts.participants] : [],
+    status: opts.status || "draft",
+    practice_count: 0,
+    last_practiced_at: null,
+    source: opts.source || "conversation",
+    created_at: new Date().toISOString(),
+  };
+  state.scenes.push(sc);
+  saveJSON("hl_scenes", state.scenes);
+  return id;
+}
+
+function updateScene(id, patch) {
+  const sc = getSceneById(id);
+  if (!sc) return false;
+  Object.assign(sc, patch);
+  saveJSON("hl_scenes", state.scenes);
+  return true;
+}
+
+function deleteScene(id) {
+  // Sätze werden NICHT gelöscht — sie verlieren nur die Bindung
+  // (DB-Constraint: on delete set null). Lokal müssen wir das selbst tun.
+  for (const s of state.userSentences) {
+    if (s.scene_id === id) {
+      s.scene_id = null;
+      s.scene_order = null;
+      s.scene_role = null;
+    }
+  }
+  state.scenes = state.scenes.filter(function (sc) { return sc.id !== id; });
+  saveJSON("hl_user_sentences", state.userSentences);
+  saveJSON("hl_scenes", state.scenes);
+}
+
+// Helper für die Szenen-Liste: pro Szene die abgeleiteten Stats berechnen
+// (Satz-Anzahl, self-Anzahl, runs, durchschnittlicher Lern-Fortschritt).
+function sceneStats(scene) {
+  if (!scene) return null;
+  const sentences = state.userSentences.filter(function (s) {
+    return s.scene_id === scene.id && !s.archived;
+  });
+  const selfSentences = sentences.filter(function (s) {
+    return s.scene_role !== "other"; // self oder unset
+  });
+  // Durchschnittlicher Lern-Fortschritt = mean(intro_count / 5) über self-Karten,
+  // gecapped bei 1.0. Eine Karte ohne Eintrag (intro_count=5 default) zählt als
+  // voll fortgeschritten.
+  let avgProgress = 1.0;
+  if (selfSentences.length > 0) {
+    let sum = 0;
+    for (const s of selfSentences) {
+      const ic = getIntroCount(s.id);
+      sum += Math.min(1, ic / 5);
+    }
+    avgProgress = sum / selfSentences.length;
+  }
+  // "Zuletzt geübt" als relative Zeit
+  let lastPracticedAgo = null;
+  if (scene.last_practiced_at) {
+    const t = new Date(scene.last_practiced_at).getTime();
+    if (!isNaN(t)) {
+      const diffMs = Date.now() - t;
+      const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      if (days <= 0) lastPracticedAgo = "heute";
+      else if (days === 1) lastPracticedAgo = "gestern";
+      else if (days < 7) lastPracticedAgo = "vor " + days + " Tagen";
+      else if (days < 30) lastPracticedAgo = "vor " + Math.floor(days / 7) + " Wochen";
+      else lastPracticedAgo = "vor " + Math.floor(days / 30) + " Monaten";
+    }
+  }
+  return {
+    sentences: sentences,
+    sentenceCount: sentences.length,
+    selfCount: selfSentences.length,
+    runs: scene.practice_count || 0,
+    avgProgress: avgProgress,
+    lastPracticedAgo: lastPracticedAgo,
+  };
 }
 
 function clearNsForm() {
@@ -1170,9 +1320,8 @@ function recallQueue(minCount) {
   if (typeof minCount !== "number") minCount = 5;
   const today = isoToday();
   const active = allSentences().filter(function (s) {
-    if (s.archived) return false;
+    if (!isPracticeable(s)) return false; // archiviert, pending, oder Szenen-other-Linie
     if (stageOf(s.id) !== "active") return false;
-    if (s.pending) return false; // unübersetzte Sätze gehören nicht ins Recall
     return true;
   });
   const due = active.filter(function (s) { return isDueToday(s.id); });
@@ -1195,7 +1344,7 @@ function recallQueue(minCount) {
 function dueCount() {
   let n = 0;
   for (const s of allSentences()) {
-    if (s.archived || s.pending) continue;
+    if (!isPracticeable(s)) continue;
     if (stageOf(s.id) !== "active") continue;
     if (isDueToday(s.id)) n++;
   }
@@ -1253,7 +1402,7 @@ function computeStreak() {
     d.setDate(d.getDate() - offset);
     const dateKey = dateKeyFromDate(d);
     const day = state.stats.daily[dateKey];
-    const active = day && (day.plays >= 1 || day.reveals >= 1 || day.rated >= 1);
+    const active = day && (day.plays >= 1 || day.reveals >= 1 || day.rated >= 1 || (day.scene_runs || 0) >= 1);
     if (active) streak++;
     else if (offset === 0) continue; // Heute leer = noch nicht aktiv, weiter rückwärts
     else break;
@@ -2384,6 +2533,9 @@ function openSaetzePage() {
   document.body.classList.remove("recall");
   document.body.classList.remove("new-sentence");  // mutual exclusion
   document.body.classList.remove("stats");
+  document.body.classList.remove("scenes");
+  document.body.classList.remove("scene-detail");
+  document.body.classList.remove("scene-practice");
   document.body.classList.add("saetze");
   closeSidePanel();
   renderSaetzePage();
@@ -2627,7 +2779,39 @@ function renderStatsPage() {
       statsInselnGridEl.appendChild(empty);
     }
   }
+
+  // === Szenen-Praxis (v1) ===
+  // Nur anzeigen, wenn der User überhaupt Szenen hat — sonst ist die Card
+  // visueller Lärm.
+  const scenesCard = document.getElementById("stats-scenes-card");
+  if (scenesCard) {
+    if (!state.scenes || state.scenes.length === 0) {
+      scenesCard.style.display = "none";
+    } else {
+      scenesCard.style.display = "";
+      const active = state.scenes.filter(function (sc) {
+        return sc.status === "active" || sc.status === "draft";
+      }).length;
+      const mastered = state.scenes.filter(function (sc) { return sc.status === "mastered"; }).length;
+      const runsToday = (state.stats.daily && state.stats.daily[isoToday()] && state.stats.daily[isoToday()].scene_runs) || 0;
+      const elActive = document.getElementById("stats-scenes-active-num");
+      const elToday = document.getElementById("stats-scenes-today-num");
+      const elMastered = document.getElementById("stats-scenes-mastered-num");
+      const elSub = document.getElementById("stats-scenes-sub");
+      if (elActive) elActive.textContent = active;
+      if (elToday) elToday.textContent = runsToday;
+      if (elMastered) elMastered.textContent = mastered;
+      if (elSub) elSub.textContent = state.scenes.length + " Szenen insgesamt";
+    }
+  }
 }
+
+// CTA: "Zu den Szenen" → Stats-Page zu, Szenen-Page auf
+const statsScenesCtaBtn = document.getElementById("stats-scenes-cta");
+if (statsScenesCtaBtn) statsScenesCtaBtn.onclick = function () {
+  closeStatsPage();
+  setTimeout(openScenesPage, 60);
+};
 
 // CTA: "Fokus-Session starten" → schließt Stats-Page und startet Fokus direkt
 // mit genau den SRS-fälligen Karten. Kein Setup-Screen dazwischen — der User
@@ -2691,6 +2875,9 @@ function openStatsPage() {
   document.body.classList.remove("recall");
   document.body.classList.remove("new-sentence");
   document.body.classList.remove("saetze");
+  document.body.classList.remove("scenes");
+  document.body.classList.remove("scene-detail");
+  document.body.classList.remove("scene-practice");
   document.body.classList.add("stats");
   closeSidePanel();
   renderStatsPage();
@@ -2725,6 +2912,9 @@ function openSettingsPage() {
   document.body.classList.remove("new-sentence");
   document.body.classList.remove("saetze");
   document.body.classList.remove("stats");
+  document.body.classList.remove("scenes");
+  document.body.classList.remove("scene-detail");
+  document.body.classList.remove("scene-practice");
   document.body.classList.add("settings");
   closeSidePanel();
   window.scrollTo({ top: 0, behavior: "instant" });
@@ -2740,6 +2930,1499 @@ function closeSettingsPage() {
 }
 if (sideSettingsLink) sideSettingsLink.onclick = function () { openSettingsPage(); };
 if (settingsBackBtn) settingsBackBtn.onclick = function () { closeSettingsPage(); };
+
+// =====================================================================
+// SZENEN-PAGE (v1 — Phase 3) + Import-Modal (v1 — Phase 2)
+// =====================================================================
+// Eine eigene Page (body.scenes) zeigt die Liste aller Szenen mit Filter/Sort
+// und einem prominenten "+ Szene importieren"-Knopf. Klick auf eine Szenen-Card
+// öffnet (v1) noch keine Detail-Page — kommt in Phase 4 — sondern nur einen
+// Toast als Stub.
+//
+// Das Import-Modal ist ein native <dialog>. TSV-Parsing erkennt sowohl rohen
+// 3-Spalten-TSV (rolle\tDE\tES) als auch den optionalen "=== AUSWERTUNG ==="-
+// Header aus KONVERSATIONS_PROMPT.md.
+
+const sideScenesLink = document.getElementById("side-scenes-link");
+const sideScenesCountBadge = document.getElementById("side-scenes-count");
+const scenesPage = document.getElementById("scenes-page");
+const scenesBackBtn = document.getElementById("scenes-back-btn");
+const scenesListEl = document.getElementById("scenes-list");
+const scenesEmptyEl = document.getElementById("scenes-empty");
+const scenesFilterEl = document.getElementById("scenes-filter");
+const scenesSortEl = document.getElementById("scenes-sort");
+const scenesImportCtaEl = document.getElementById("scenes-import-cta");
+const scenesImportCtaEmptyEl = document.getElementById("scenes-import-cta-empty");
+const scenesHeaderSubEl = document.getElementById("scenes-header-sub");
+
+let _modeBeforeScenes = null;
+function openScenesPage() {
+  _modeBeforeScenes = document.body.classList.contains("focus")
+    ? "focus"
+    : (document.body.classList.contains("recall") ? "recall" : "listen");
+  document.body.classList.remove("focus");
+  document.body.classList.remove("recall");
+  document.body.classList.remove("new-sentence");
+  document.body.classList.remove("saetze");
+  document.body.classList.remove("stats");
+  document.body.classList.remove("settings");
+  document.body.classList.remove("scene-detail");
+  document.body.classList.remove("scene-practice");
+  document.body.classList.add("scenes");
+  closeSidePanel();
+  if (scenesSortEl) scenesSortEl.value = state.scenesSort;
+  renderScenesPage();
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+function closeScenesPage() {
+  document.body.classList.remove("scenes");
+  if (_modeBeforeScenes === "focus" && typeof setFocusModeActive === "function") {
+    setFocusModeActive();
+  } else if (_modeBeforeScenes === "recall") {
+    document.body.classList.add("recall");
+  }
+  _modeBeforeScenes = null;
+}
+if (sideScenesLink) sideScenesLink.onclick = function () { openScenesPage(); };
+if (scenesBackBtn) scenesBackBtn.onclick = function () { closeScenesPage(); };
+
+// Sidebar-Badge: Anzahl aktiver Szenen
+function updateScenesBadge() {
+  if (!sideScenesCountBadge) return;
+  const n = state.scenes.filter(function (sc) { return sc.status === "active"; }).length;
+  if (n > 0) {
+    sideScenesCountBadge.textContent = n;
+    sideScenesCountBadge.style.display = "";
+  } else {
+    sideScenesCountBadge.textContent = "";
+    sideScenesCountBadge.style.display = "none";
+  }
+}
+
+// ----- Filter-Tabs + Sort -----
+function setScenesFilter(value) {
+  state.scenesFilter = value;
+  localStorage.setItem("hl_scenes_filter", value);
+  if (scenesFilterEl) {
+    const tabs = scenesFilterEl.querySelectorAll(".scenes-filter-tab");
+    tabs.forEach(function (t) {
+      t.classList.toggle("active", t.getAttribute("data-scenes-filter") === value);
+    });
+  }
+  renderScenesPage();
+}
+if (scenesFilterEl) {
+  scenesFilterEl.addEventListener("click", function (e) {
+    const btn = e.target.closest(".scenes-filter-tab");
+    if (!btn) return;
+    const value = btn.getAttribute("data-scenes-filter");
+    if (value) setScenesFilter(value);
+  });
+}
+if (scenesSortEl) {
+  scenesSortEl.onchange = function () {
+    state.scenesSort = scenesSortEl.value;
+    localStorage.setItem("hl_scenes_sort", state.scenesSort);
+    renderScenesPage();
+  };
+}
+
+function _scenesFilterCounts() {
+  const counts = { all: 0, draft: 0, active: 0, mastered: 0, archived: 0 };
+  for (const sc of state.scenes) {
+    counts.all++;
+    if (counts.hasOwnProperty(sc.status)) counts[sc.status]++;
+  }
+  return counts;
+}
+
+function renderScenesPage() {
+  if (!scenesListEl) return;
+  // Restore active filter tab from state
+  if (scenesFilterEl) {
+    scenesFilterEl.querySelectorAll(".scenes-filter-tab").forEach(function (t) {
+      t.classList.toggle("active", t.getAttribute("data-scenes-filter") === state.scenesFilter);
+    });
+    // Update count badges in tabs
+    const counts = _scenesFilterCounts();
+    scenesFilterEl.querySelectorAll("[data-count-for]").forEach(function (el) {
+      const k = el.getAttribute("data-count-for");
+      if (counts.hasOwnProperty(k)) el.textContent = counts[k];
+    });
+  }
+
+  // Filter
+  let list = state.scenes.slice();
+  if (state.scenesFilter !== "all") {
+    list = list.filter(function (sc) { return sc.status === state.scenesFilter; });
+  }
+
+  // Sort
+  const sortBy = state.scenesSort || "last_practiced";
+  list.sort(function (a, b) {
+    if (sortBy === "title") {
+      return (a.title || "").localeCompare(b.title || "");
+    }
+    if (sortBy === "sentence_count") {
+      const ca = state.userSentences.filter(function (s) { return s.scene_id === a.id; }).length;
+      const cb = state.userSentences.filter(function (s) { return s.scene_id === b.id; }).length;
+      return cb - ca;
+    }
+    if (sortBy === "created") {
+      return (b.created_at || "").localeCompare(a.created_at || "");
+    }
+    // default: last_practiced — Szenen die nie geübt wurden, ans Ende
+    const la = a.last_practiced_at || "";
+    const lb = b.last_practiced_at || "";
+    if (!la && !lb) return (b.created_at || "").localeCompare(a.created_at || "");
+    if (!la) return 1;
+    if (!lb) return -1;
+    return lb.localeCompare(la);
+  });
+
+  // Header-Sub aktualisieren
+  if (scenesHeaderSubEl) {
+    const counts = _scenesFilterCounts();
+    if (counts.all === 0) {
+      scenesHeaderSubEl.textContent = "Dialog-Szenen aus Konversationen.";
+    } else {
+      scenesHeaderSubEl.textContent = counts.active + " aktiv · " + counts.draft + " draft · " +
+        counts.mastered + " gemeistert · " + counts.archived + " archiviert";
+    }
+  }
+
+  // Render
+  scenesListEl.innerHTML = "";
+  if (list.length === 0) {
+    scenesListEl.style.display = "none";
+    if (scenesEmptyEl) {
+      const counts = _scenesFilterCounts();
+      scenesEmptyEl.style.display = counts.all === 0 ? "" : "";
+      // Wenn es Szenen gibt aber der aktuelle Filter leer ist, anderen Text zeigen
+      if (counts.all > 0) {
+        scenesEmptyEl.querySelector("h3").textContent = "Keine Szenen in diesem Filter";
+        scenesEmptyEl.querySelector("p").textContent = "Wechsle den Filter oder importiere eine neue Szene.";
+      } else {
+        scenesEmptyEl.querySelector("h3").textContent = "Noch keine Szenen";
+        scenesEmptyEl.querySelector("p").textContent = "Starte eine Konversation in Cowork oder claude.ai, paste den TSV-Output hier rein und lege deine erste Szene an.";
+      }
+    }
+    return;
+  }
+  scenesListEl.style.display = "";
+  if (scenesEmptyEl) scenesEmptyEl.style.display = "none";
+
+  for (const sc of list) {
+    scenesListEl.appendChild(renderSceneCard(sc));
+  }
+  updateScenesBadge();
+}
+
+function renderSceneCard(sc) {
+  const stats = sceneStats(sc);
+  const card = document.createElement("div");
+  card.className = "scene-card " + (sc.status || "draft");
+
+  // Icon
+  const iconWrap = document.createElement("div");
+  iconWrap.className = "scene-card-icon";
+  iconWrap.innerHTML = '<span class="material-symbols-outlined">forum</span>';
+  card.appendChild(iconWrap);
+
+  // Body
+  const body = document.createElement("div");
+  body.className = "scene-card-body";
+  const title = document.createElement("h3");
+  title.className = "scene-card-title";
+  title.textContent = sc.title || "(Ohne Titel)";
+  body.appendChild(title);
+  if (sc.setting) {
+    const setting = document.createElement("p");
+    setting.className = "scene-card-setting";
+    setting.textContent = sc.setting;
+    body.appendChild(setting);
+  }
+  const meta = document.createElement("div");
+  meta.className = "scene-card-meta";
+  const parts = [];
+  parts.push(stats.sentenceCount + " Sätze");
+  parts.push(stats.runs + " Runs");
+  if (stats.lastPracticedAgo) parts.push("zuletzt " + stats.lastPracticedAgo);
+  meta.innerHTML = parts.join('<span class="dot">·</span>');
+  body.appendChild(meta);
+  // Progress-Bar
+  const progress = document.createElement("div");
+  progress.className = "scene-card-progress";
+  const fill = document.createElement("div");
+  fill.className = "scene-card-progress-fill";
+  fill.style.width = Math.round(stats.avgProgress * 100) + "%";
+  progress.appendChild(fill);
+  body.appendChild(progress);
+  card.appendChild(body);
+
+  // Right: Status-Pill
+  const right = document.createElement("div");
+  right.className = "scene-card-right";
+  const pill = document.createElement("span");
+  pill.className = "scene-status-pill " + (sc.status || "draft");
+  const STATUS_LABELS = { draft: "Draft", active: "Aktiv", mastered: "Beherrscht", archived: "Archiv" };
+  pill.textContent = STATUS_LABELS[sc.status] || sc.status || "Draft";
+  right.appendChild(pill);
+  card.appendChild(right);
+
+  // Klick → v1-Stub-Toast (Detail-Page kommt in Phase 4)
+  card.onclick = function () {
+    showToast("Szenen-Detail-Page kommt in der nächsten Phase. Aktuell: „" + sc.title + "“ mit " + stats.sentenceCount + " Sätzen.", 4000);
+  };
+
+  return card;
+}
+
+// ============================================================
+//   SZENEN-IMPORT-MODAL (Phase 2)
+// ============================================================
+const sceneImportDialog = document.getElementById("scene-import-dialog");
+const sceneImportCloseBtn = document.getElementById("scene-import-close");
+const sceneImportCancelBtn = document.getElementById("scene-import-cancel");
+const sceneImportSubmitBtn = document.getElementById("scene-import-submit");
+const sceneImportTitleEl = document.getElementById("scene-import-title");
+const sceneImportSettingEl = document.getElementById("scene-import-setting");
+const sceneImportRolesEl = document.getElementById("scene-import-roles");
+const sceneImportRoleInputEl = document.getElementById("scene-import-role-input");
+const sceneImportRoleAddBtn = document.getElementById("scene-import-role-add-btn");
+const sceneImportTsvEl = document.getElementById("scene-import-tsv");
+const sceneImportParseBtn = document.getElementById("scene-import-parse-btn");
+const sceneImportParseStatusEl = document.getElementById("scene-import-parse-status");
+const sceneImportSentencesEl = document.getElementById("scene-import-sentences");
+const sceneImportCountHintEl = document.getElementById("scene-import-count-hint");
+const sceneImportAudioEl = document.getElementById("scene-import-audio");
+const sceneImportFlatEl = document.getElementById("scene-import-flat");
+
+// State des Modals — leben nur für die Modal-Session
+const _sceneImport = {
+  roles: [],         // ["self", "maria"]
+  parsedRows: [],    // [{ role, de, es, status, error? }]
+};
+
+function openSceneImportDialog() {
+  if (!sceneImportDialog) return;
+  // Reset
+  _sceneImport.roles = ["self"];
+  _sceneImport.parsedRows = [];
+  if (sceneImportTitleEl) sceneImportTitleEl.value = "";
+  if (sceneImportSettingEl) sceneImportSettingEl.value = "";
+  if (sceneImportTsvEl) sceneImportTsvEl.value = "";
+  if (sceneImportAudioEl) sceneImportAudioEl.checked = false;
+  if (sceneImportFlatEl) sceneImportFlatEl.checked = false;
+  if (sceneImportParseStatusEl) sceneImportParseStatusEl.textContent = "Noch kein TSV-Inhalt geparsed.";
+  renderImportRoles();
+  renderImportSentences();
+  updateImportSubmitState();
+  sceneImportDialog.showModal();
+}
+function closeSceneImportDialog() {
+  if (sceneImportDialog && sceneImportDialog.open) sceneImportDialog.close();
+}
+if (scenesImportCtaEl) scenesImportCtaEl.onclick = openSceneImportDialog;
+if (scenesImportCtaEmptyEl) scenesImportCtaEmptyEl.onclick = openSceneImportDialog;
+if (sceneImportCloseBtn) sceneImportCloseBtn.onclick = closeSceneImportDialog;
+if (sceneImportCancelBtn) sceneImportCancelBtn.onclick = closeSceneImportDialog;
+
+// ----- Rollen-Verwaltung -----
+function renderImportRoles() {
+  if (!sceneImportRolesEl) return;
+  sceneImportRolesEl.innerHTML = "";
+  for (const role of _sceneImport.roles) {
+    const pill = document.createElement("span");
+    pill.className = "scene-import-role-pill";
+    const txt = document.createElement("span");
+    txt.textContent = role;
+    pill.appendChild(txt);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.title = "Rolle entfernen";
+    remove.textContent = "×";
+    remove.onclick = function () {
+      _sceneImport.roles = _sceneImport.roles.filter(function (r) { return r !== role; });
+      renderImportRoles();
+      renderImportSentences();
+    };
+    pill.appendChild(remove);
+    sceneImportRolesEl.appendChild(pill);
+  }
+}
+function addImportRole(name) {
+  const norm = (name || "").trim().toLowerCase();
+  if (!norm) return;
+  if (_sceneImport.roles.indexOf(norm) >= 0) return;
+  _sceneImport.roles.push(norm);
+  renderImportRoles();
+  renderImportSentences();
+}
+if (sceneImportRoleAddBtn) sceneImportRoleAddBtn.onclick = function () {
+  const val = sceneImportRoleInputEl ? sceneImportRoleInputEl.value : "";
+  addImportRole(val);
+  if (sceneImportRoleInputEl) sceneImportRoleInputEl.value = "";
+};
+if (sceneImportRoleInputEl) sceneImportRoleInputEl.addEventListener("keydown", function (e) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    addImportRole(sceneImportRoleInputEl.value);
+    sceneImportRoleInputEl.value = "";
+  }
+});
+
+// ----- TSV-Parser -----
+// Akzeptiert:
+//   - Code-Block-Backticks (```) am Anfang/Ende werden gestrippt
+//   - Optionaler Auswertungs-Header (=== AUSWERTUNG ===, [SZENE], Titel:, Setting:, Rollen:)
+//     wird erkannt und die Header-Felder im Modal werden vorbefüllt
+//   - Jede Daten-Zeile: rolle<TAB>DE<TAB>ES
+//     Toleriert auch 2+ Spaces als Trenner und "|" als Pipe-Trenner
+//   - Leerzeilen / Kommentar-Zeilen (#…) werden übersprungen
+// Output: { headerTitle, headerSetting, headerRoles, rows: [{role, de, es, error?}] }
+function parseSceneTSV(text) {
+  if (!text) return { rows: [] };
+  // Strippen
+  let s = String(text);
+  s = s.replace(/^```[a-z]*\n/i, "").replace(/\n```\s*$/, "");
+  const lines = s.split(/\r?\n/);
+  const result = { rows: [] };
+  let inHeader = false;
+  let sceneBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const line = raw.trim();
+    if (!line) continue;
+    // Header-Marker erkennen
+    if (/^={2,}\s*AUSWERTUNG\s*={2,}$/i.test(line)) { inHeader = true; continue; }
+    if (/^\[SZENE\]$/i.test(line)) { inHeader = true; sceneBlock = true; continue; }
+    if (/^\[SAETZE\]$/i.test(line) || /^\[SÄTZE\]$/i.test(line)) { sceneBlock = false; continue; }
+    if (line.startsWith("#")) continue;
+
+    if (inHeader && sceneBlock) {
+      // Key: Value Zeilen
+      const m = line.match(/^(Titel|Setting|Rollen|Participants)\s*:\s*(.+)$/i);
+      if (m) {
+        const key = m[1].toLowerCase();
+        const val = m[2].trim();
+        if (key === "titel") result.headerTitle = val;
+        else if (key === "setting") result.headerSetting = val;
+        else if (key === "rollen" || key === "participants") {
+          result.headerRoles = val.split(/[,;]/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
+        }
+        continue;
+      }
+      // Trennlinie zwischen Header und Sätzen
+      if (/^---+$/.test(line)) { sceneBlock = false; continue; }
+    }
+
+    // Daten-Zeile: erst Tab, dann 2+-Spaces, dann Pipe als Trenner
+    let parts;
+    if (line.indexOf("\t") >= 0) {
+      parts = line.split(/\t+/);
+    } else if (/\|\s*/.test(line) && line.split(/\s*\|\s*/).length >= 3) {
+      parts = line.split(/\s*\|\s*/);
+    } else if (/ {2,}/.test(line)) {
+      parts = line.split(/ {2,}/);
+    } else {
+      // Vielleicht ein Header-Hinweis im Mini-Format — als Fehler-Row
+      result.rows.push({ role: "self", de: line, es: "", error: "Konnte Zeile nicht parsen (kein Tab/Pipe/2+Spaces als Trenner)" });
+      continue;
+    }
+    parts = parts.map(function (p) { return p.trim(); });
+    let role = "self", de = "", es = "";
+    if (parts.length >= 3) {
+      role = parts[0].toLowerCase() || "self";
+      de = parts[1] || "";
+      es = parts[2] || "";
+    } else if (parts.length === 2) {
+      // Annahme: DE, ES (keine Rolle)
+      de = parts[0] || "";
+      es = parts[1] || "";
+    } else {
+      result.rows.push({ role: "self", de: line, es: "", error: "Nur ein Feld — nicht genug für eine Karte" });
+      continue;
+    }
+    if (!de && !es) continue;
+    result.rows.push({ role: role, de: de, es: es });
+  }
+  return result;
+}
+
+function _parseAndPopulate() {
+  const text = sceneImportTsvEl ? sceneImportTsvEl.value : "";
+  const parsed = parseSceneTSV(text);
+
+  // Header-Felder befüllen, falls geparsed und Felder leer
+  if (parsed.headerTitle && sceneImportTitleEl && !sceneImportTitleEl.value.trim()) {
+    sceneImportTitleEl.value = parsed.headerTitle;
+  }
+  if (parsed.headerSetting && sceneImportSettingEl && !sceneImportSettingEl.value.trim()) {
+    sceneImportSettingEl.value = parsed.headerSetting;
+  }
+  if (parsed.headerRoles && parsed.headerRoles.length > 0) {
+    for (const r of parsed.headerRoles) addImportRole(r);
+  }
+  // Status: bisher unbekannte Rollen in der TSV automatisch hinzufügen
+  for (const row of parsed.rows) {
+    if (row.role && _sceneImport.roles.indexOf(row.role) < 0) {
+      _sceneImport.roles.push(row.role);
+    }
+  }
+  renderImportRoles();
+
+  // Rows ins State, jede default-status "card_and_scene"
+  _sceneImport.parsedRows = parsed.rows.map(function (r) {
+    return {
+      role: r.role || "self",
+      de: r.de,
+      es: r.es,
+      status: r.error ? "skip" : "card_and_scene",
+      error: r.error || null,
+    };
+  });
+
+  const validCount = _sceneImport.parsedRows.filter(function (r) { return !r.error; }).length;
+  const errCount = _sceneImport.parsedRows.length - validCount;
+  if (sceneImportParseStatusEl) {
+    if (_sceneImport.parsedRows.length === 0) {
+      sceneImportParseStatusEl.textContent = "Keine parsbare Zeile gefunden.";
+    } else {
+      sceneImportParseStatusEl.textContent = validCount + " Zeilen erkannt"
+        + (errCount > 0 ? " · " + errCount + " mit Fehler" : "");
+    }
+  }
+  renderImportSentences();
+  updateImportSubmitState();
+}
+if (sceneImportParseBtn) sceneImportParseBtn.onclick = _parseAndPopulate;
+// Auto-Parse on paste
+if (sceneImportTsvEl) sceneImportTsvEl.addEventListener("paste", function () {
+  // Kurz warten bis paste applied ist
+  setTimeout(_parseAndPopulate, 30);
+});
+
+// ----- Sätze-Liste rendern -----
+function renderImportSentences() {
+  if (!sceneImportSentencesEl) return;
+  sceneImportSentencesEl.innerHTML = "";
+  if (_sceneImport.parsedRows.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "scene-import-empty";
+    empty.textContent = "Vorschau erscheint hier, sobald TSV eingefügt ist.";
+    sceneImportSentencesEl.appendChild(empty);
+    if (sceneImportCountHintEl) sceneImportCountHintEl.textContent = "— ausgewählt";
+    return;
+  }
+  // Roles ggf. um "self" ergänzen falls leer
+  if (_sceneImport.roles.length === 0) {
+    _sceneImport.roles.push("self");
+    renderImportRoles();
+  }
+  _sceneImport.parsedRows.forEach(function (row, idx) {
+    sceneImportSentencesEl.appendChild(renderImportRow(row, idx));
+  });
+  const selected = _sceneImport.parsedRows.filter(function (r) {
+    return r.status !== "skip" && !r.error;
+  }).length;
+  if (sceneImportCountHintEl) {
+    sceneImportCountHintEl.textContent = selected + " von " + _sceneImport.parsedRows.length + " ausgewählt";
+  }
+}
+
+function renderImportRow(row, idx) {
+  const el = document.createElement("div");
+  el.className = "scene-import-row";
+  if (row.status === "skip") el.classList.add("skip");
+  if (row.error) el.classList.add("error");
+
+  // Status-Toggle: card_and_scene | scene_only | skip
+  const status = document.createElement("div");
+  status.className = "scene-import-row-status";
+  const opts = [
+    { key: "card_and_scene", label: "Karte+Szene", title: "Als Karte (mit Audio & SRS) und Teil der Szene" },
+    { key: "scene_only", label: "Nur Szene", title: "Nur in der Szene sichtbar, NICHT in den normalen Üben-Pools (z.B. other-Linien)" },
+    { key: "skip", label: "Weglassen", title: "Diese Zeile gar nicht importieren" },
+  ];
+  for (const opt of opts) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = opt.label;
+    b.title = opt.title;
+    if (row.status === opt.key) b.classList.add("active");
+    b.onclick = function () {
+      _sceneImport.parsedRows[idx].status = opt.key;
+      renderImportSentences();
+      updateImportSubmitState();
+    };
+    status.appendChild(b);
+  }
+  el.appendChild(status);
+
+  // Rolle-Dropdown
+  const roleWrap = document.createElement("div");
+  roleWrap.className = "scene-import-row-role";
+  const sel = document.createElement("select");
+  for (const role of _sceneImport.roles) {
+    const opt = document.createElement("option");
+    opt.value = role;
+    opt.textContent = role;
+    if (role === row.role) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  sel.onchange = function () { _sceneImport.parsedRows[idx].role = sel.value; };
+  roleWrap.appendChild(sel);
+  el.appendChild(roleWrap);
+
+  // Text (DE+ES editierbar)
+  const text = document.createElement("div");
+  text.className = "scene-import-row-text";
+  const deInput = document.createElement("input");
+  deInput.type = "text";
+  deInput.className = "de";
+  deInput.value = row.de || "";
+  deInput.placeholder = "Deutsch";
+  deInput.oninput = function () { _sceneImport.parsedRows[idx].de = deInput.value; };
+  text.appendChild(deInput);
+  const esInput = document.createElement("input");
+  esInput.type = "text";
+  esInput.className = "es";
+  esInput.value = row.es || "";
+  esInput.placeholder = "Español";
+  esInput.oninput = function () { _sceneImport.parsedRows[idx].es = esInput.value; };
+  text.appendChild(esInput);
+  if (row.error) {
+    const err = document.createElement("div");
+    err.className = "scene-import-row-error-msg";
+    err.textContent = row.error;
+    text.appendChild(err);
+  }
+  el.appendChild(text);
+
+  return el;
+}
+
+function updateImportSubmitState() {
+  if (!sceneImportSubmitBtn) return;
+  const title = sceneImportTitleEl ? sceneImportTitleEl.value.trim() : "";
+  const selected = _sceneImport.parsedRows.filter(function (r) {
+    return r.status !== "skip" && !r.error && r.de.trim();
+  });
+  const flat = sceneImportFlatEl && sceneImportFlatEl.checked;
+  // Im flachen Modus brauchen wir keinen Title
+  const titleOk = flat || title.length > 0;
+  const ok = selected.length > 0 && titleOk;
+  sceneImportSubmitBtn.disabled = !ok;
+  sceneImportSubmitBtn.textContent = ok
+    ? (flat ? "Sätze importieren (" + selected.length + ")" : "Szene anlegen (" + selected.length + " Sätze)")
+    : "Szene anlegen";
+}
+if (sceneImportTitleEl) sceneImportTitleEl.addEventListener("input", updateImportSubmitState);
+if (sceneImportFlatEl) sceneImportFlatEl.addEventListener("change", updateImportSubmitState);
+
+// ----- Submit -----
+if (sceneImportSubmitBtn) sceneImportSubmitBtn.onclick = function () {
+  const title = sceneImportTitleEl ? sceneImportTitleEl.value.trim() : "";
+  const setting = sceneImportSettingEl ? sceneImportSettingEl.value.trim() : "";
+  const participants = _sceneImport.roles.slice();
+  const flat = sceneImportFlatEl && sceneImportFlatEl.checked;
+  const audio = sceneImportAudioEl && sceneImportAudioEl.checked;
+
+  const usable = _sceneImport.parsedRows.filter(function (r) {
+    return r.status !== "skip" && !r.error && r.de.trim();
+  });
+  if (usable.length === 0) {
+    showToast("Keine Sätze zum Importieren.");
+    return;
+  }
+  if (!flat && !title) {
+    showToast("Bitte einen Titel angeben (oder „Flach importieren“ aktivieren).");
+    if (sceneImportTitleEl) sceneImportTitleEl.focus();
+    return;
+  }
+
+  let sceneId = null;
+  if (!flat) {
+    sceneId = addScene({
+      title: title,
+      setting: setting,
+      participants: participants,
+      status: "draft",
+      source: "conversation",
+    });
+  }
+
+  const newIds = [];
+  const newIdsWithEs = [];
+  let orderCounter = 1;
+  for (const r of usable) {
+    // scene_only-Rows bekommen die Rolle "other", damit sie automatisch
+    // aus den normalen SRS-Pools rausfallen (siehe isPracticeable)
+    let role = r.role || "self";
+    if (r.status === "scene_only" && role === "self") {
+      role = "other"; // Default für "Nur Szene"
+    }
+    const id = addUserSentence({
+      de: r.de.trim(),
+      es: r.es.trim(),
+      cats: [],
+      scene_id: sceneId,
+      scene_order: sceneId ? orderCounter++ : null,
+      scene_role: sceneId ? role : null,
+    });
+    if (id) {
+      newIds.push(id);
+      if (r.es && r.es.trim()) newIdsWithEs.push(id);
+    }
+  }
+
+  // UI-Update
+  buildUserSentencesList();
+  updatePendingBadge();
+  updateProgress();
+  if (typeof buildIntroCatSelect === "function") buildIntroCatSelect();
+  if (typeof updateIntroModeBtn === "function") updateIntroModeBtn();
+  if (typeof updateRecallModeBtn === "function") updateRecallModeBtn();
+  renderScenesPage();
+
+  if (flat) {
+    showToast(newIds.length + " Sätze importiert.");
+  } else {
+    showToast("Szene „" + title + "“ angelegt mit " + newIds.length + " Sätzen.");
+  }
+  closeSceneImportDialog();
+
+  // Audio im Hintergrund erzeugen falls Checkbox aktiv
+  if (audio && newIdsWithEs.length > 0 && state.elKey) {
+    generateBulkAudios(newIdsWithEs);
+  } else if (audio && newIdsWithEs.length > 0 && !state.elKey) {
+    showToast("ElevenLabs Key fehlt — Audios nicht generiert.", 4000);
+  }
+};
+
+// ESC schließt den Dialog (eigener Handler, weil <dialog> das schon macht,
+// aber wir wollen sauberen State-Reset)
+if (sceneImportDialog) {
+  sceneImportDialog.addEventListener("close", function () {
+    // No-op, state wird beim nächsten Open eh resettet
+  });
+}
+
+// =====================================================================
+// SZENEN-DETAIL-PAGE (Phase 4)
+// =====================================================================
+// Eine Szene als Chat-Bubble-Layout. self-Bubbles rechts mit teal-Akzent
+// + Stars + SRS-Status-Pill, other-Bubbles links neutral ohne Rating.
+// Edit-Modus erlaubt Titel/Setting/Sätze + scene_role-Toggle, KEIN Reorder
+// in v1.
+
+const scenesDetailPage = document.getElementById("scene-detail-page");
+const sceneDetailBackBtn = document.getElementById("scene-detail-back-btn");
+const sceneDetailTitleEl = document.getElementById("scene-detail-title");
+const sceneDetailSettingEl = document.getElementById("scene-detail-setting");
+const sceneDetailParticipantsEl = document.getElementById("scene-detail-participants");
+const sceneDetailBubblesEl = document.getElementById("scene-detail-bubbles");
+const sceneDetailFooterEl = document.getElementById("scene-detail-footer");
+const sceneDetailPracticeBtn = document.getElementById("scene-detail-practice-btn");
+const sceneDetailExtendBtn = document.getElementById("scene-detail-extend-btn");
+const sceneDetailMenuBtn = document.getElementById("scene-detail-menu-btn");
+const sceneDetailMenuEl = document.getElementById("scene-detail-menu");
+const sceneDetailEditBtn = document.getElementById("scene-detail-edit-btn");
+const sceneDetailArchiveBtn = document.getElementById("scene-detail-archive-btn");
+const sceneDetailArchiveLabel = document.getElementById("scene-detail-archive-label");
+const sceneDetailDeleteBtn = document.getElementById("scene-detail-delete-btn");
+const sceneDetailEditBannerEl = document.getElementById("scene-detail-edit-banner");
+const sceneDetailEditCancelBtn = document.getElementById("scene-detail-edit-cancel");
+const sceneDetailEditSaveBtn = document.getElementById("scene-detail-edit-save");
+
+// Welche Szene aktuell offen ist + ob Edit-Modus aktiv
+state.openSceneId = null;
+state.sceneEditing = false;
+// Pending Edits: { title, setting, sentences: {[id]: {de, es, scene_role}} }
+state.sceneEditBuffer = null;
+let _modeBeforeSceneDetail = null;
+
+function openSceneDetailPage(sceneId) {
+  const sc = getSceneById(sceneId);
+  if (!sc) {
+    showToast("Szene nicht gefunden.");
+    return;
+  }
+  _modeBeforeSceneDetail = document.body.classList.contains("scenes") ? "scenes" : "listen";
+  state.openSceneId = sceneId;
+  state.sceneEditing = false;
+  state.sceneEditBuffer = null;
+  document.body.classList.remove("focus");
+  document.body.classList.remove("recall");
+  document.body.classList.remove("new-sentence");
+  document.body.classList.remove("saetze");
+  document.body.classList.remove("stats");
+  document.body.classList.remove("settings");
+  document.body.classList.remove("scenes");
+  document.body.classList.remove("editing");
+  document.body.classList.add("scene-detail");
+  closeSidePanel();
+  if (sceneDetailMenuEl) sceneDetailMenuEl.classList.remove("open");
+  renderSceneDetailPage();
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+function closeSceneDetailPage() {
+  document.body.classList.remove("scene-detail");
+  document.body.classList.remove("editing");
+  state.openSceneId = null;
+  state.sceneEditing = false;
+  state.sceneEditBuffer = null;
+  if (sceneDetailMenuEl) sceneDetailMenuEl.classList.remove("open");
+  if (_modeBeforeSceneDetail === "scenes") {
+    // Zurück zur Szenen-Liste
+    document.body.classList.add("scenes");
+    renderScenesPage();
+  }
+  _modeBeforeSceneDetail = null;
+}
+if (sceneDetailBackBtn) sceneDetailBackBtn.onclick = function () {
+  if (state.sceneEditing) {
+    if (!confirm("Bearbeitung verwerfen?")) return;
+  }
+  closeSceneDetailPage();
+};
+
+// SRS-Status-Pill-Text + Klasse für eine self-Karte
+function sceneSrsPillFor(id) {
+  const r = getRating(id);
+  if (r === "learned") return { text: "Gelernt", cls: "learned" };
+  const cs = state.cardState[id];
+  if (!cs || !cs.due_at) {
+    if (!r) return { text: "Neu", cls: "fresh" };
+    return { text: "Nicht terminiert", cls: "fresh" };
+  }
+  const today = isoToday();
+  if (cs.due_at <= today) return { text: "Heute fällig", cls: "due" };
+  if (cs.due_at === isoAddDays(today, 1)) return { text: "Morgen fällig", cls: "" };
+  // In N Tagen
+  const t = new Date(today + "T00:00:00").getTime();
+  const dt = new Date(cs.due_at + "T00:00:00").getTime();
+  const days = Math.max(0, Math.round((dt - t) / (1000 * 60 * 60 * 24)));
+  return { text: "in " + days + " Tagen", cls: "" };
+}
+
+// Sterne-SVG-Render für die Bubble-Meta (3 Sterne + optional Gehirn)
+function sceneStarsHtml(id) {
+  const r = getRating(id);
+  if (r === "learned") {
+    return '<span class="scene-bubble-stars" title="Gelernt"><svg class="filled learned" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2z"/></svg></span>';
+  }
+  const filled = (typeof r === "number" || typeof r === "string") ? parseInt(r) : 0;
+  let html = '<span class="scene-bubble-stars">';
+  for (let i = 1; i <= 3; i++) {
+    const cls = (i <= filled) ? ' class="filled"' : "";
+    html += '<svg' + cls + ' viewBox="0 0 24 24" fill="' + (i <= filled ? "currentColor" : "none") + '" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>';
+  }
+  html += '</span>';
+  return html;
+}
+
+function renderSceneDetailPage() {
+  if (!state.openSceneId) return;
+  const sc = getSceneById(state.openSceneId);
+  if (!sc) { closeSceneDetailPage(); return; }
+
+  // Edit-Buffer initialisieren, falls noch nicht gesetzt
+  if (state.sceneEditing && !state.sceneEditBuffer) {
+    const sentences = state.userSentences.filter(function (s) { return s.scene_id === sc.id; });
+    state.sceneEditBuffer = {
+      title: sc.title || "",
+      setting: sc.setting || "",
+      sentences: {},
+    };
+    for (const s of sentences) {
+      state.sceneEditBuffer.sentences[s.id] = {
+        de: s.de || "",
+        es: s.es || "",
+        scene_role: s.scene_role || "self",
+      };
+    }
+  }
+
+  // Header
+  if (sceneDetailTitleEl) {
+    if (state.sceneEditing) {
+      sceneDetailTitleEl.innerHTML = "";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = state.sceneEditBuffer.title;
+      input.placeholder = "Szenen-Titel";
+      input.oninput = function () { state.sceneEditBuffer.title = input.value; };
+      sceneDetailTitleEl.appendChild(input);
+    } else {
+      sceneDetailTitleEl.textContent = sc.title || "(Ohne Titel)";
+    }
+  }
+  if (sceneDetailSettingEl) {
+    if (state.sceneEditing) {
+      sceneDetailSettingEl.innerHTML = "";
+      const ta = document.createElement("textarea");
+      ta.value = state.sceneEditBuffer.setting;
+      ta.placeholder = "Setting (1–2 Zeilen Kontext)";
+      ta.rows = 2;
+      ta.oninput = function () { state.sceneEditBuffer.setting = ta.value; };
+      sceneDetailSettingEl.appendChild(ta);
+    } else {
+      sceneDetailSettingEl.textContent = sc.setting || "";
+    }
+  }
+  if (sceneDetailParticipantsEl) {
+    sceneDetailParticipantsEl.innerHTML = "";
+    for (const p of (sc.participants || [])) {
+      const pill = document.createElement("span");
+      pill.className = "pill";
+      pill.textContent = p;
+      sceneDetailParticipantsEl.appendChild(pill);
+    }
+  }
+
+  // Archive-Label dynamisch
+  if (sceneDetailArchiveLabel) {
+    sceneDetailArchiveLabel.textContent = sc.status === "archived" ? "Wiederherstellen" : "Archivieren";
+  }
+
+  // Edit-Banner
+  if (sceneDetailEditBannerEl) {
+    sceneDetailEditBannerEl.style.display = state.sceneEditing ? "flex" : "none";
+  }
+  document.body.classList.toggle("editing", !!state.sceneEditing);
+
+  // Bubbles
+  if (sceneDetailBubblesEl) {
+    sceneDetailBubblesEl.innerHTML = "";
+    const sentences = state.userSentences
+      .filter(function (s) { return s.scene_id === sc.id; })
+      .sort(function (a, b) { return (a.scene_order || 0) - (b.scene_order || 0); });
+    if (sentences.length === 0) {
+      const empty = document.createElement("div");
+      empty.style.cssText = "text-align:center; color:var(--outline); padding:30px 12px; font-style:italic;";
+      empty.textContent = "Diese Szene hat noch keine Sätze.";
+      sceneDetailBubblesEl.appendChild(empty);
+    } else {
+      for (const s of sentences) {
+        sceneDetailBubblesEl.appendChild(renderSceneBubble(s));
+      }
+    }
+  }
+
+  // Footer
+  if (sceneDetailFooterEl) {
+    const stats = sceneStats(sc);
+    const parts = [];
+    parts.push(stats.sentenceCount + " Sätze");
+    parts.push(stats.runs + " Runs");
+    if (stats.lastPracticedAgo) parts.push("zuletzt " + stats.lastPracticedAgo);
+    const STATUS_LABELS = { draft: "Draft", active: "Aktiv", mastered: "Beherrscht", archived: "Archiv" };
+    parts.push('Status: <span class="status-pill">' + (STATUS_LABELS[sc.status] || sc.status) + '</span>');
+    sceneDetailFooterEl.innerHTML = parts.join('<span class="dot">·</span>');
+  }
+
+  // Practice-Button: disabled wenn keine Sätze oder editing
+  if (sceneDetailPracticeBtn) {
+    const stats = sceneStats(sc);
+    sceneDetailPracticeBtn.disabled = state.sceneEditing || stats.sentenceCount === 0;
+  }
+}
+
+function renderSceneBubble(s) {
+  const isOther = (s.scene_role === "other");
+  const editing = !!state.sceneEditing;
+  const bubble = document.createElement("div");
+  bubble.className = "scene-bubble " + (isOther ? "other" : "self");
+
+  // Rolle-Tag (nur für other oder editing-Mode für jede Bubble)
+  if (isOther || editing) {
+    const role = document.createElement("div");
+    role.className = "scene-bubble-role";
+    role.textContent = s.scene_role || "self";
+    bubble.appendChild(role);
+  }
+
+  const body = document.createElement("div");
+  body.className = "scene-bubble-body";
+
+  if (editing) {
+    const buf = state.sceneEditBuffer.sentences[s.id];
+    const editRow = document.createElement("div");
+    editRow.className = "scene-bubble-edit-row";
+    const esInput = document.createElement("input");
+    esInput.className = "es";
+    esInput.type = "text";
+    esInput.value = buf.es;
+    esInput.placeholder = "Español";
+    esInput.oninput = function () { buf.es = esInput.value; };
+    editRow.appendChild(esInput);
+    const deInput = document.createElement("input");
+    deInput.className = "de";
+    deInput.type = "text";
+    deInput.value = buf.de;
+    deInput.placeholder = "Deutsch";
+    deInput.oninput = function () { buf.de = deInput.value; };
+    editRow.appendChild(deInput);
+    // Rolle-Toggle
+    const toggle = document.createElement("div");
+    toggle.className = "scene-bubble-role-toggle";
+    const selfBtn = document.createElement("button");
+    selfBtn.type = "button";
+    selfBtn.textContent = "self";
+    selfBtn.className = (buf.scene_role !== "other") ? "active" : "";
+    const otherBtn = document.createElement("button");
+    otherBtn.type = "button";
+    otherBtn.textContent = "other";
+    otherBtn.className = (buf.scene_role === "other") ? "active" : "";
+    selfBtn.onclick = function () {
+      buf.scene_role = "self";
+      selfBtn.classList.add("active");
+      otherBtn.classList.remove("active");
+    };
+    otherBtn.onclick = function () {
+      buf.scene_role = "other";
+      otherBtn.classList.add("active");
+      selfBtn.classList.remove("active");
+    };
+    toggle.appendChild(selfBtn);
+    toggle.appendChild(otherBtn);
+    editRow.appendChild(toggle);
+    body.appendChild(editRow);
+  } else {
+    // ES + DE
+    const es = document.createElement("p");
+    es.className = "es" + (s.pending ? " pending" : "");
+    es.textContent = s.pending ? "(Übersetzung ausstehend)" : (s.es || "—");
+    body.appendChild(es);
+    if (s.de) {
+      const de = document.createElement("p");
+      de.className = "de";
+      de.textContent = s.de;
+      body.appendChild(de);
+    }
+
+    // Meta-Zeile (Speaker + Stars + SRS-Pill für self)
+    const meta = document.createElement("div");
+    meta.className = "scene-bubble-meta";
+    // Speaker
+    const speaker = document.createElement("button");
+    speaker.className = "scene-bubble-speaker";
+    speaker.title = "Abspielen";
+    const audioReady = hasAudio(s);
+    if (!audioReady) {
+      speaker.classList.add("loading");
+      speaker.title = s.pending ? "Übersetzung fehlt" : "Audio wird erzeugt …";
+      speaker.disabled = true;
+      speaker.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">hourglass_top</span>';
+    } else {
+      speaker.innerHTML = '<span class="material-symbols-outlined fill" style="font-size:16px;">volume_up</span>';
+      speaker.onclick = function () { playSaetzeAudio(s); };
+    }
+    meta.appendChild(speaker);
+
+    if (!isOther) {
+      meta.innerHTML += sceneStarsHtml(s.id);
+      // SRS-Pill
+      const srs = sceneSrsPillFor(s.id);
+      if (srs.text) {
+        const pill = document.createElement("span");
+        pill.className = "scene-bubble-srs " + (srs.cls || "");
+        pill.textContent = srs.text;
+        meta.appendChild(pill);
+      }
+    }
+    body.appendChild(meta);
+  }
+
+  bubble.appendChild(body);
+  return bubble;
+}
+
+// ----- Edit-Modus Toggle -----
+function enterSceneEditMode() {
+  if (!state.openSceneId) return;
+  state.sceneEditing = true;
+  state.sceneEditBuffer = null; // wird in renderSceneDetailPage initialisiert
+  if (sceneDetailMenuEl) sceneDetailMenuEl.classList.remove("open");
+  renderSceneDetailPage();
+}
+function cancelSceneEdit() {
+  state.sceneEditing = false;
+  state.sceneEditBuffer = null;
+  renderSceneDetailPage();
+}
+function saveSceneEdit() {
+  if (!state.openSceneId || !state.sceneEditBuffer) return;
+  const buf = state.sceneEditBuffer;
+  // Szene aktualisieren
+  updateScene(state.openSceneId, {
+    title: buf.title.trim() || "(Ohne Titel)",
+    setting: buf.setting.trim(),
+  });
+  // Sätze aktualisieren
+  let touched = 0;
+  for (const idStr in buf.sentences) {
+    const id = parseInt(idStr);
+    const s = getSentenceById(id);
+    if (!s) continue;
+    const edit = buf.sentences[idStr];
+    const newDe = (edit.de || "").trim();
+    const newEs = (edit.es || "").trim();
+    const newRole = edit.scene_role || "self";
+    const changed = s.de !== newDe || s.es !== newEs || s.scene_role !== newRole;
+    if (changed) {
+      s.de = newDe;
+      s.es = newEs;
+      s.pending = newEs ? false : true;
+      // Wenn self → other gewechselt: aus den SRS-Pools rausnehmen, sonst stage anpassen
+      const prevRole = s.scene_role;
+      s.scene_role = newRole;
+      if (prevRole !== "other" && newRole === "other") {
+        // setzt intro_count auf 5 (active=neutral, nicht im SRS)
+        setIntroCount(id, 5);
+      } else if (prevRole === "other" && newRole !== "other") {
+        // wieder in den Einführungs-Backlog
+        setIntroCount(id, 0);
+      }
+      touched++;
+    }
+  }
+  if (touched > 0) saveJSON("hl_user_sentences", state.userSentences);
+  state.sceneEditing = false;
+  state.sceneEditBuffer = null;
+  showToast("Änderungen gespeichert (" + touched + " Sätze).");
+  renderSceneDetailPage();
+}
+
+if (sceneDetailEditBtn) sceneDetailEditBtn.onclick = enterSceneEditMode;
+if (sceneDetailEditCancelBtn) sceneDetailEditCancelBtn.onclick = function () {
+  if (!confirm("Bearbeitung verwerfen?")) return;
+  cancelSceneEdit();
+};
+if (sceneDetailEditSaveBtn) sceneDetailEditSaveBtn.onclick = saveSceneEdit;
+
+// ----- Menü-Toggle (Klick außerhalb schließt) -----
+if (sceneDetailMenuBtn) sceneDetailMenuBtn.onclick = function (e) {
+  e.stopPropagation();
+  if (sceneDetailMenuEl) sceneDetailMenuEl.classList.toggle("open");
+};
+document.addEventListener("click", function (e) {
+  if (!sceneDetailMenuEl) return;
+  if (!sceneDetailMenuEl.contains(e.target) && e.target !== sceneDetailMenuBtn && !sceneDetailMenuBtn.contains(e.target)) {
+    sceneDetailMenuEl.classList.remove("open");
+  }
+});
+
+// ----- Archivieren / Wiederherstellen -----
+if (sceneDetailArchiveBtn) sceneDetailArchiveBtn.onclick = function () {
+  const sc = getSceneById(state.openSceneId);
+  if (!sc) return;
+  if (sc.status === "archived") {
+    updateScene(sc.id, { status: "active" });
+    showToast("Szene wiederhergestellt.");
+  } else {
+    updateScene(sc.id, { status: "archived" });
+    showToast("Szene archiviert.");
+  }
+  if (sceneDetailMenuEl) sceneDetailMenuEl.classList.remove("open");
+  renderSceneDetailPage();
+  updateScenesBadge();
+};
+
+// ----- Endgültig löschen -----
+if (sceneDetailDeleteBtn) sceneDetailDeleteBtn.onclick = function () {
+  const sc = getSceneById(state.openSceneId);
+  if (!sc) return;
+  const stats = sceneStats(sc);
+  const msg = "Szene „" + sc.title + "“ endgültig löschen?\n\n" +
+    stats.sentenceCount + " Sätze verlieren nur die Szenen-Bindung — die Karten selbst bleiben in „Meine Sätze“.";
+  if (!confirm(msg)) return;
+  deleteScene(sc.id);
+  showToast("Szene gelöscht.");
+  closeSceneDetailPage();
+};
+
+// ----- Üben-Button (öffnet Practice-Mode) -----
+if (sceneDetailPracticeBtn) sceneDetailPracticeBtn.onclick = function () {
+  if (!state.openSceneId) return;
+  startScenePractice(state.openSceneId);
+};
+
+// =====================================================================
+// SZENEN-CARD-CLICK in der Liste → Detail-Page öffnen
+// =====================================================================
+// Override des Stub-Toasts aus Phase 3 — Klick auf Card öffnet jetzt Detail.
+// Die existierende renderSceneCard-Funktion in der Scenes-Liste wird hier
+// nicht modifiziert (wir wollen die Logik gekapselt halten); stattdessen
+// ersetzen wir den onclick-Handler direkt nach dem Re-Render.
+// Wir hooken in renderScenesPage via einer Wrapping-Strategie: nach jedem
+// Append der Cards re-binden wir die onclick-Handler.
+const _originalRenderScenesPage = renderScenesPage;
+renderScenesPage = function () {
+  _originalRenderScenesPage();
+  // Re-bind Klick-Handler auf alle Scene-Cards (statt Stub-Toast → Detail)
+  if (scenesListEl) {
+    const cards = scenesListEl.querySelectorAll(".scene-card");
+    cards.forEach(function (card, idx) {
+      // Wir brauchen die scene-ID aus der gefilterten/sortierten Liste, aber
+      // _originalRenderScenesPage rendert sie nicht direkt als data-attr.
+      // Einfacher Workaround: in renderSceneCard die ID via data-attr setzen.
+      const sid = card.getAttribute("data-scene-id");
+      if (sid) {
+        const sceneId = parseInt(sid, 10);
+        card.onclick = function () { openSceneDetailPage(sceneId); };
+      }
+    });
+  }
+};
+// Patch renderSceneCard: data-scene-id setzen
+const _originalRenderSceneCard = renderSceneCard;
+renderSceneCard = function (sc) {
+  const card = _originalRenderSceneCard(sc);
+  card.setAttribute("data-scene-id", sc.id);
+  // onclick wird von renderScenesPage (s.o.) gesetzt — den Stub-Toast überschreiben
+  card.onclick = function () { openSceneDetailPage(sc.id); };
+  return card;
+};
+
+// =====================================================================
+// SZENEN-ÜBEN-MODUS (Phase 5)
+// =====================================================================
+// Vollbild-Overlay, läuft sequenziell durch alle Sätze einer Szene.
+// self-Karten: DE → Reveal → ES + Audio + SRS-Pill → Weiter
+// other-Karten: DE + ES direkt sichtbar, Audio spielt sofort, Weiter
+// Am Ende: practice_count++, last_practiced_at=now, intro_count++ für self.
+// Status-Übergänge: draft → active (erster Run), → mastered (>=10 runs +
+// alle self auf learned).
+
+const scenePracticeOverlay = document.getElementById("scene-practice-overlay");
+const scenePracticeCloseBtn = document.getElementById("scene-practice-close-btn");
+const scenePracticeTitleEl = document.getElementById("scene-practice-title");
+const scenePracticeCounterEl = document.getElementById("scene-practice-counter");
+const scenePracticeProgressFillEl = document.getElementById("scene-practice-progress-fill");
+const scenePracticeCardViewEl = document.getElementById("scene-practice-card-view");
+const scenePracticeSummaryViewEl = document.getElementById("scene-practice-summary-view");
+const scenePracticePrevEl = document.getElementById("scene-practice-prev");
+const scenePracticeSettingEl = document.getElementById("scene-practice-setting");
+const scenePracticeRoleTagEl = document.getElementById("scene-practice-role-tag");
+const scenePracticeDeEl = document.getElementById("scene-practice-de");
+const scenePracticeRevealBtn = document.getElementById("scene-practice-reveal-btn");
+const scenePracticeEsSideEl = document.getElementById("scene-practice-es-side");
+const scenePracticeEsEl = document.getElementById("scene-practice-es");
+const scenePracticePlayBtn = document.getElementById("scene-practice-play-btn");
+const scenePracticeAgainBtn = document.getElementById("scene-practice-again-btn");
+const scenePracticeSrsPillEl = document.getElementById("scene-practice-srs-pill");
+const scenePracticeNextBtn = document.getElementById("scene-practice-next-btn");
+const scenePracticeSummaryTitleEl = document.getElementById("scene-practice-summary-title");
+const scenePracticeSummarySubEl = document.getElementById("scene-practice-summary-sub");
+const scenePracticeSummaryStatsEl = document.getElementById("scene-practice-summary-stats");
+const scenePracticeSummaryAgainBtn = document.getElementById("scene-practice-summary-again");
+const scenePracticeSummaryDoneBtn = document.getElementById("scene-practice-summary-done");
+
+// Session-State
+state.scenePractice = {
+  active: false,
+  sceneId: null,
+  queue: [],         // Array<sentenceId> in scene_order
+  index: 0,
+  revealed: false,
+};
+
+function startScenePractice(sceneId) {
+  const sc = getSceneById(sceneId);
+  if (!sc) return;
+  const sentences = state.userSentences
+    .filter(function (s) { return s.scene_id === sceneId && !s.archived; })
+    .sort(function (a, b) { return (a.scene_order || 0) - (b.scene_order || 0); });
+  if (sentences.length === 0) {
+    showToast("Diese Szene hat keine Sätze zum Üben.");
+    return;
+  }
+  state.scenePractice = {
+    active: true,
+    sceneId: sceneId,
+    queue: sentences.map(function (s) { return s.id; }),
+    index: 0,
+    revealed: false,
+  };
+  document.body.classList.add("scene-practice");
+  if (scenePracticeSummaryViewEl) scenePracticeSummaryViewEl.style.display = "none";
+  if (scenePracticeCardViewEl) scenePracticeCardViewEl.style.display = "flex";
+  if (scenePracticeTitleEl) scenePracticeTitleEl.textContent = sc.title || "(Ohne Titel)";
+  showScenePracticeCard();
+}
+
+function endScenePractice(advance) {
+  state.scenePractice.active = false;
+  document.body.classList.remove("scene-practice");
+  // Audio stoppen
+  try { if (audioEl) { audioEl.pause(); audioEl.src = ""; } } catch (e) {}
+  if (advance) renderSceneDetailPage();
+}
+
+function showScenePracticeCard() {
+  const sp = state.scenePractice;
+  if (!sp.active) return;
+  if (sp.index >= sp.queue.length) {
+    showScenePracticeSummary();
+    return;
+  }
+  const id = sp.queue[sp.index];
+  const s = getSentenceById(id);
+  if (!s) {
+    sp.index++;
+    showScenePracticeCard();
+    return;
+  }
+  sp.revealed = false;
+  const isOther = (s.scene_role === "other");
+
+  // Header-Counter + Progress
+  if (scenePracticeCounterEl) {
+    scenePracticeCounterEl.textContent = "Satz " + (sp.index + 1) + " von " + sp.queue.length;
+  }
+  if (scenePracticeProgressFillEl) {
+    scenePracticeProgressFillEl.style.width = (((sp.index) / sp.queue.length) * 100) + "%";
+  }
+
+  // Vorherige Karte als Kontext-Hinweis (dezent darüber)
+  if (scenePracticePrevEl) {
+    if (sp.index > 0) {
+      const prevId = sp.queue[sp.index - 1];
+      const prev = getSentenceById(prevId);
+      if (prev) {
+        scenePracticePrevEl.innerHTML = '<span class="prev-role">' + (prev.scene_role || "self") + ':</span> ' +
+          '<span class="prev-es">' + escapeHtml(prev.es || "—") + '</span><br>' +
+          '<span class="prev-de">' + escapeHtml(prev.de || "") + '</span>';
+        scenePracticePrevEl.style.display = "";
+      } else {
+        scenePracticePrevEl.style.display = "none";
+      }
+    } else {
+      scenePracticePrevEl.style.display = "none";
+    }
+  }
+
+  // Setting nur auf erster Karte zeigen
+  if (scenePracticeSettingEl) {
+    const sc = getSceneById(sp.sceneId);
+    if (sp.index === 0 && sc && sc.setting) {
+      scenePracticeSettingEl.textContent = sc.setting;
+      scenePracticeSettingEl.style.display = "";
+    } else {
+      scenePracticeSettingEl.style.display = "none";
+    }
+  }
+
+  // Rollen-Tag
+  if (scenePracticeRoleTagEl) {
+    scenePracticeRoleTagEl.textContent = s.scene_role || "self";
+    scenePracticeRoleTagEl.classList.toggle("other", isOther);
+  }
+
+  // DE
+  if (scenePracticeDeEl) scenePracticeDeEl.textContent = s.de || "—";
+
+  // ES + Reveal/Next-Buttons
+  if (isOther) {
+    // Other-Karten: ES sofort sichtbar, kein Reveal, Audio auto?
+    // Hard UX Rule: KEIN auto-play bei Reveal. Aber other-Karten haben keinen
+    // Reveal-Step — sie sind direkt offen. Auto-play wäre hier OK, aber
+    // wir bleiben konservativ und lassen den User klicken.
+    if (scenePracticeRevealBtn) scenePracticeRevealBtn.style.display = "none";
+    if (scenePracticeEsSideEl) scenePracticeEsSideEl.style.display = "";
+    if (scenePracticeEsEl) scenePracticeEsEl.textContent = s.es || "—";
+    if (scenePracticeSrsPillEl) {
+      // other-Karten haben keinen SRS-Status
+      scenePracticeSrsPillEl.textContent = "";
+      scenePracticeSrsPillEl.className = "scene-practice-srs-pill";
+    }
+    if (scenePracticeNextBtn) scenePracticeNextBtn.style.display = "";
+    sp.revealed = true;
+  } else {
+    // self-Karten: Reveal-Step
+    if (scenePracticeRevealBtn) scenePracticeRevealBtn.style.display = "";
+    if (scenePracticeEsSideEl) scenePracticeEsSideEl.style.display = "none";
+    if (scenePracticeNextBtn) scenePracticeNextBtn.style.display = "none";
+    // ES vorbereiten (wird beim Reveal sichtbar)
+    if (scenePracticeEsEl) scenePracticeEsEl.textContent = s.es || "—";
+    const srs = sceneSrsPillFor(id);
+    if (scenePracticeSrsPillEl) {
+      scenePracticeSrsPillEl.textContent = srs.text;
+      scenePracticeSrsPillEl.className = "scene-practice-srs-pill " + (srs.cls || "");
+    }
+  }
+}
+
+function revealScenePracticeCard() {
+  const sp = state.scenePractice;
+  if (!sp.active || sp.revealed) return;
+  sp.revealed = true;
+  if (scenePracticeRevealBtn) scenePracticeRevealBtn.style.display = "none";
+  if (scenePracticeEsSideEl) scenePracticeEsSideEl.style.display = "";
+  if (scenePracticeNextBtn) scenePracticeNextBtn.style.display = "";
+  // Reveal-Stats analog dem normalen Recall
+  if (typeof incrementStat === "function") {
+    try {
+      const id = sp.queue[sp.index];
+      if (!state.revealed.has(id)) {
+        state.revealed.add(id);
+        incrementStat("reveals");
+      }
+    } catch (e) { /* nicht-kritisch */ }
+  }
+}
+
+function playScenePracticeAudio() {
+  const sp = state.scenePractice;
+  if (!sp.active) return;
+  const id = sp.queue[sp.index];
+  const s = getSentenceById(id);
+  if (!s) return;
+  if (!hasAudio(s)) {
+    showToast("Kein Audio für diesen Satz.", 2500);
+    return;
+  }
+  playSaetzeAudio(s);
+  if (typeof incrementStat === "function") {
+    try { incrementStat("plays"); } catch (e) {}
+  }
+}
+
+function nextScenePracticeCard() {
+  const sp = state.scenePractice;
+  if (!sp.active) return;
+  sp.index++;
+  showScenePracticeCard();
+}
+
+function showScenePracticeSummary() {
+  const sp = state.scenePractice;
+  if (!sp.active) return;
+  const sc = getSceneById(sp.sceneId);
+  if (!sc) { endScenePractice(true); return; }
+
+  // 1) practice_count + last_practiced_at hochzählen
+  const newCount = (sc.practice_count || 0) + 1;
+  const patch = {
+    practice_count: newCount,
+    last_practiced_at: new Date().toISOString(),
+  };
+  // Status-Übergang: draft → active beim ersten Run
+  if (sc.status === "draft") patch.status = "active";
+  // mastered-Check: >=10 Runs UND alle self-Sätze auf learned
+  if (newCount >= 10 && sc.status !== "mastered") {
+    const selfSentences = state.userSentences.filter(function (s) {
+      return s.scene_id === sc.id && s.scene_role !== "other" && !s.archived;
+    });
+    const allLearned = selfSentences.length > 0 && selfSentences.every(function (s) {
+      return getRating(s.id) === "learned";
+    });
+    if (allLearned) patch.status = "mastered";
+  }
+  updateScene(sc.id, patch);
+
+  // Stats-Counter "scene_runs" für heute inkrementieren — die Stats-Page
+  // zeigt das als "heute geübt" an. Wir benutzen incrementStat nicht, weil
+  // das eine "non-plays"-Aktivität ist die den Streak zählen darf (also
+  // wie "rated" behandelt).
+  try {
+    const today = isoToday();
+    ensureStatsDay(today);
+    const day = state.stats.daily[today];
+    if (typeof day.scene_runs !== "number") day.scene_runs = 0;
+    day.scene_runs += 1;
+    const cur = computeStreak();
+    if (cur > (state.stats.all_time.longest_streak || 0)) {
+      state.stats.all_time.longest_streak = cur;
+    }
+    saveJSON("hl_stats", state.stats);
+  } catch (e) { console.warn("[scenes] stats counter failed:", e); }
+
+  // 2) intro_count++ für alle self-Karten der Szene (NICHT other)
+  const selfIds = sp.queue.filter(function (id) {
+    const s = getSentenceById(id);
+    return s && s.scene_role !== "other";
+  });
+  let graduated = 0;
+  let advanced = 0;
+  for (const id of selfIds) {
+    const before = getIntroCount(id);
+    const after = Math.min(before + 1, 5);
+    setIntroCount(id, after);
+    if (before < 5 && after >= 5) graduated++;
+    else if (after > before) advanced++;
+  }
+
+  // 3) Summary-Screen anzeigen
+  if (scenePracticeCardViewEl) scenePracticeCardViewEl.style.display = "none";
+  if (scenePracticeSummaryViewEl) scenePracticeSummaryViewEl.style.display = "flex";
+  if (scenePracticeProgressFillEl) scenePracticeProgressFillEl.style.width = "100%";
+
+  const wasNewStatus = patch.status && patch.status !== sc.status;
+  if (scenePracticeSummaryTitleEl) {
+    scenePracticeSummaryTitleEl.textContent = "Run " + newCount + " abgeschlossen";
+  }
+  if (scenePracticeSummarySubEl) {
+    let sub = "";
+    if (graduated > 0) sub = graduated + " Karte(n) sind jetzt im aktiven Pool.";
+    else if (advanced > 0) sub = advanced + " Karte(n) sind eine Einführungs-Stufe weiter.";
+    else sub = "Schön — du hast die Szene durchgespielt.";
+    if (patch.status === "active" && sc.status === "draft") sub += " Status: jetzt aktiv.";
+    if (patch.status === "mastered") sub += " Szene als beherrscht markiert!";
+    scenePracticeSummarySubEl.textContent = sub;
+  }
+  if (scenePracticeSummaryStatsEl) {
+    scenePracticeSummaryStatsEl.innerHTML =
+      '<div class="scene-practice-summary-stat"><div class="num">' + newCount + '</div><div class="lbl">Runs</div></div>' +
+      '<div class="scene-practice-summary-stat"><div class="num">' + sp.queue.length + '</div><div class="lbl">Sätze</div></div>' +
+      '<div class="scene-practice-summary-stat"><div class="num">' + graduated + '</div><div class="lbl">graduiert</div></div>';
+  }
+  updateScenesBadge();
+}
+
+// Buttons
+if (scenePracticeCloseBtn) scenePracticeCloseBtn.onclick = function () {
+  // Vor Summary: confirm
+  const sp = state.scenePractice;
+  if (sp.active && sp.index < sp.queue.length) {
+    if (!confirm("Session abbrechen? Kein Run-Counter wird hochgezählt.")) return;
+  }
+  endScenePractice(true);
+};
+if (scenePracticeRevealBtn) scenePracticeRevealBtn.onclick = revealScenePracticeCard;
+if (scenePracticePlayBtn) scenePracticePlayBtn.onclick = playScenePracticeAudio;
+if (scenePracticeAgainBtn) scenePracticeAgainBtn.onclick = playScenePracticeAudio;
+if (scenePracticeNextBtn) scenePracticeNextBtn.onclick = nextScenePracticeCard;
+if (scenePracticeSummaryAgainBtn) scenePracticeSummaryAgainBtn.onclick = function () {
+  if (!state.scenePractice.sceneId) return;
+  startScenePractice(state.scenePractice.sceneId);
+};
+if (scenePracticeSummaryDoneBtn) scenePracticeSummaryDoneBtn.onclick = function () {
+  endScenePractice(true);
+};
+
+// Leertaste = Reveal oder Next
+document.addEventListener("keydown", function (e) {
+  if (!document.body.classList.contains("scene-practice")) return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  if (e.code === "Space") {
+    e.preventDefault();
+    const sp = state.scenePractice;
+    if (!sp.active) return;
+    if (!sp.revealed) revealScenePracticeCard();
+    else nextScenePracticeCard();
+  } else if (e.key === "Escape") {
+    if (state.scenePractice.active) {
+      e.preventDefault();
+      scenePracticeCloseBtn && scenePracticeCloseBtn.click();
+    }
+  }
+});
 
 // =====================================================================
 // PRAXIS-MODI in der Sidebar (Sidebar-Restructure Mai 2026)
@@ -2761,6 +4444,9 @@ function _closeAllPageOverlays() {
   document.body.classList.remove("saetze");
   document.body.classList.remove("stats");
   document.body.classList.remove("settings");
+  document.body.classList.remove("scenes");
+  document.body.classList.remove("scene-detail");
+  document.body.classList.remove("scene-practice");
   document.body.classList.remove("new-sentence");
 }
 
@@ -2879,6 +4565,8 @@ async function onLogin() {
   // Refresh the Einführung dropdown now that user_sentences + intro_counts are loaded
   if (typeof buildIntroCatSelect === "function") buildIntroCatSelect();
   if (typeof updateIntroModeBtn === "function") updateIntroModeBtn();
+  // Szenen-Badge aktualisieren nach Pull
+  if (typeof updateScenesBadge === "function") updateScenesBadge();
   if (mainSortEl) mainSortEl.value = state.mainSort;
   if (saetzeSortEl) saetzeSortEl.value = state.usSort;
   // Defeat any browser autofill that may have polluted the search box
@@ -3007,10 +4695,42 @@ async function pullCloudData() {
         id: r.id, de: r.de, es: r.es || "",
         cats: r.cats || [], pending: r.pending !== false,
         archived: !!r.archived, audio_path: r.audio_path || "",
+        // Szenen v1 — optional, leer wenn nicht migriert oder keine Szene
+        scene_id: r.scene_id || null,
+        scene_order: typeof r.scene_order === "number" ? r.scene_order : null,
+        scene_role: r.scene_role || null,
         audio: "" // local field, not stored in cloud
       };
     });
     localStorage.setItem("hl_user_sentences", JSON.stringify(state.userSentences));
+
+    // Scenes — eigene Tabelle. Wir tolerieren ein Fehlen der Tabelle, damit
+    // die App auch vor Ausführung der Migration sauber bootet.
+    try {
+      const { data: scenes, error: scErr } = await sb
+        .from("scenes").select("*").eq("user_id", currentUser.id).order("id");
+      if (scErr) throw scErr;
+      state.scenes = (scenes || []).map(function (r) {
+        return {
+          id: r.id,
+          title: r.title || "",
+          setting: r.setting || "",
+          participants: r.participants || [],
+          status: r.status || "draft",
+          practice_count: r.practice_count || 0,
+          last_practiced_at: r.last_practiced_at || null,
+          source: r.source || "conversation",
+          created_at: r.created_at || null,
+        };
+      });
+      localStorage.setItem("hl_scenes", JSON.stringify(state.scenes));
+    } catch (scErr) {
+      // Wenn die `scenes`-Tabelle noch nicht existiert (Migration nicht
+      // ausgeführt), loggen wir eine Hinweis-Warnung statt zu crashen.
+      // Der Rest der App funktioniert dann normal.
+      console.warn("[scenes] Pull fehlgeschlagen — vermutlich Migration noch nicht ausgeführt:", scErr.message);
+      state.scenes = [];
+    }
   } finally {
     _suppressSync = false;
   }
@@ -3078,23 +4798,109 @@ async function pushUserSentences() {
         .eq("user_id", currentUser.id).in("id", toDelete);
       if (dErr) throw dErr;
     }
-    // Upsert all local rows
+    // Upsert all local rows.
+    // Wenn die Szenen-Migration noch nicht gelaufen ist, fehlen die scene_*
+    // Spalten in der DB → wir versuchen zuerst mit den neuen Spalten und
+    // fallen auf die alte Form zurück, wenn Postgres meckert. Cache das
+    // Ergebnis pro Session, damit nicht jeder Push doppelt feuert.
     if (state.userSentences.length) {
+      const includeScene = !window._scenesColumnsMissing;
       const rows = state.userSentences.map(function (s) {
-        return {
+        const row = {
           id: s.id, user_id: currentUser.id, de: s.de, es: s.es || "",
           cats: s.cats || [], pending: s.pending !== false,
           archived: !!s.archived, audio_path: s.audio_path || "",
         };
+        if (includeScene) {
+          row.scene_id = s.scene_id || null;
+          row.scene_order = typeof s.scene_order === "number" ? s.scene_order : null;
+          row.scene_role = s.scene_role || null;
+        }
+        return row;
       });
       const { error: uErr } = await sb.from("user_sentences").upsert(rows);
-      if (uErr) throw uErr;
+      if (uErr) {
+        // Wenn die scene_*-Spalten fehlen, ein Mal still retryen ohne sie.
+        const msg = (uErr.message || "").toLowerCase();
+        if (includeScene && (msg.indexOf("scene_id") >= 0 || msg.indexOf("scene_order") >= 0 || msg.indexOf("scene_role") >= 0 || msg.indexOf("column") >= 0)) {
+          console.warn("[scenes] user_sentences.scene_* fehlen — fallback push ohne Szenen-Felder. Migration ausführen für volle Funktion.");
+          window._scenesColumnsMissing = true;
+          const legacyRows = state.userSentences.map(function (s) {
+            return {
+              id: s.id, user_id: currentUser.id, de: s.de, es: s.es || "",
+              cats: s.cats || [], pending: s.pending !== false,
+              archived: !!s.archived, audio_path: s.audio_path || "",
+            };
+          });
+          const { error: uErr2 } = await sb.from("user_sentences").upsert(legacyRows);
+          if (uErr2) throw uErr2;
+        } else {
+          throw uErr;
+        }
+      }
     }
     setSyncStatus("synced");
   } catch (e) {
     console.error("pushUserSentences error:", e);
     setSyncStatus("error");
     showToast("Sync-Fehler (Sätze): " + e.message, 4000);
+  }
+}
+
+// ===== Szenen-Sync (Diff + Upsert + Delete, analog pushUserSentences) =====
+let pushScenesTimer = null;
+function queuePushScenes() {
+  if (!currentUser || _suppressSync) return;
+  if (pushScenesTimer) clearTimeout(pushScenesTimer);
+  setSyncStatus("syncing");
+  pushScenesTimer = setTimeout(pushScenes, 1500);
+}
+async function pushScenes() {
+  pushScenesTimer = null;
+  if (!currentUser) return;
+  try {
+    // 1) Bestehende Cloud-IDs holen
+    const { data: cloud, error: cErr } = await sb
+      .from("scenes").select("id").eq("user_id", currentUser.id);
+    if (cErr) throw cErr;
+    const cloudIds = new Set((cloud || []).map(function (r) { return r.id; }));
+    const localIds = new Set(state.scenes.map(function (sc) { return sc.id; }));
+    // 2) Lokal gelöschte Szenen aus Cloud entfernen
+    const toDelete = [...cloudIds].filter(function (id) { return !localIds.has(id); });
+    if (toDelete.length) {
+      const { error: dErr } = await sb.from("scenes").delete()
+        .eq("user_id", currentUser.id).in("id", toDelete);
+      if (dErr) throw dErr;
+    }
+    // 3) Lokale Rows upserten
+    if (state.scenes.length) {
+      const rows = state.scenes.map(function (sc) {
+        return {
+          id: sc.id,
+          user_id: currentUser.id,
+          title: sc.title || "",
+          setting: sc.setting || "",
+          participants: sc.participants || [],
+          status: sc.status || "draft",
+          practice_count: sc.practice_count || 0,
+          last_practiced_at: sc.last_practiced_at || null,
+          source: sc.source || "conversation",
+        };
+      });
+      const { error: uErr } = await sb.from("scenes").upsert(rows);
+      if (uErr) throw uErr;
+    }
+    setSyncStatus("synced");
+  } catch (e) {
+    console.error("pushScenes error:", e);
+    setSyncStatus("error");
+    // Wenn die Tabelle noch nicht existiert (Migration nicht ausgeführt), klingt das
+    // nach einem normalen Fehler — wir loggen nur und zeigen einen sanften Toast.
+    if (e.message && /relation "scenes" does not exist|scenes/i.test(e.message)) {
+      showToast("Szenen-Tabelle fehlt — Migration ausführen (siehe migrations/scenes_v1.sql)", 5000);
+    } else {
+      showToast("Sync-Fehler (Szenen): " + e.message, 4000);
+    }
   }
 }
 
@@ -3227,6 +5033,7 @@ buildNsCatPickers();
 renderNsRecent();
 updateNsMultiCount();
 buildRatingFilter();
+if (typeof updateScenesBadge === "function") updateScenesBadge();
 if (saetzeSortEl) saetzeSortEl.value = state.usSort;
 mainSortEl.value = state.mainSort;
 applyFilter();
@@ -3436,8 +5243,7 @@ function focusEligibleSentences() {
   // dann Cat-Filter und Rating-Filter (optional, falls User die explizit setzt).
   const dueIds = new Set(recallQueue(5));
   return allSentences().filter(function (s) {
-    if (s.archived) return false;
-    if (s.pending) return false;
+    if (!isPracticeable(s)) return false;  // archiviert, pending, oder Szenen-other-Linie
     if (stageOf(s.id) !== "active") return false;
     if (!dueIds.has(s.id)) return false;  // <-- die wichtige Zeile: nur SRS-Queue
     if (focus.cats.size > 0 && !s.cats.some(function (c) { return focus.cats.has(c); })) return false;

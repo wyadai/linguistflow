@@ -86,6 +86,12 @@
         Meine Sätze
       </button>
 
+      <button class="side-section-link" id="side-scenes-link">
+        <span class="side-sum-icon material-symbols-outlined">forum</span>
+        Szenen
+        <span id="side-scenes-count" class="side-badge"></span>
+      </button>
+
       <button class="side-section-link" id="side-stats-link">
         <span class="side-sum-icon material-symbols-outlined">bar_chart</span>
         Statistiken
@@ -767,6 +773,200 @@
 
       </div>
 
+      <!-- ===== Szenen (eigene Seite — v1) ===== -->
+      <div class="scenes-page" id="scenes-page">
+
+        <div class="scenes-header">
+          <button class="scenes-back-btn" id="scenes-back-btn" title="Zurück">
+            <span class="material-symbols-outlined" style="font-size:20px;">arrow_back</span>
+            <span>Zurück</span>
+          </button>
+          <div class="scenes-header-title">
+            <h2>Szenen</h2>
+            <p id="scenes-header-sub">Dialog-Szenen aus Konversationen.</p>
+          </div>
+          <div class="scenes-header-actions">
+            <button class="scenes-import-cta" id="scenes-import-cta">
+              <span class="material-symbols-outlined" style="font-size:18px;">add</span>
+              <span>Szene importieren</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="scenes-toolbar">
+          <div class="scenes-filter" id="scenes-filter">
+            <button class="scenes-filter-tab" data-scenes-filter="all">Alle <span class="count" data-count-for="all">0</span></button>
+            <button class="scenes-filter-tab" data-scenes-filter="draft">Draft <span class="count" data-count-for="draft">0</span></button>
+            <button class="scenes-filter-tab active" data-scenes-filter="active">Aktiv <span class="count" data-count-for="active">0</span></button>
+            <button class="scenes-filter-tab" data-scenes-filter="mastered">Beherrscht <span class="count" data-count-for="mastered">0</span></button>
+            <button class="scenes-filter-tab" data-scenes-filter="archived">Archiv <span class="count" data-count-for="archived">0</span></button>
+          </div>
+          <div class="scenes-sort-wrap">
+            <span class="material-symbols-outlined" style="font-size:16px;">sort</span>
+            <select id="scenes-sort" class="scenes-sort">
+              <option value="last_practiced">Zuletzt geübt</option>
+              <option value="title">Titel</option>
+              <option value="sentence_count">Anzahl Sätze</option>
+              <option value="created">Erstellt</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="scenes-list" id="scenes-list"></div>
+
+        <div class="scenes-empty" id="scenes-empty" style="display:none;">
+          <span class="material-symbols-outlined">forum</span>
+          <h3>Noch keine Szenen</h3>
+          <p>Starte eine Konversation in Cowork oder claude.ai, paste den TSV-Output hier rein und lege deine erste Szene an.</p>
+          <button class="scenes-import-cta" id="scenes-import-cta-empty">
+            <span class="material-symbols-outlined" style="font-size:18px;">add</span>
+            <span>Szene importieren</span>
+          </button>
+        </div>
+
+      </div>
+
+      <!-- ===== Szenen-Detail (eigene Seite — Phase 4) ===== -->
+      <div class="scene-detail-page" id="scene-detail-page">
+
+        <div class="scene-detail-header">
+          <button class="scene-detail-back-btn" id="scene-detail-back-btn" title="Zurück">
+            <span class="material-symbols-outlined" style="font-size:20px;">arrow_back</span>
+            <span>Zurück</span>
+          </button>
+          <div class="scene-detail-title-wrap">
+            <h2 id="scene-detail-title">—</h2>
+            <p id="scene-detail-setting" class="scene-detail-setting"></p>
+            <div id="scene-detail-participants" class="scene-detail-participants"></div>
+          </div>
+          <div class="scene-detail-actions">
+            <button class="scene-detail-practice-btn" id="scene-detail-practice-btn">
+              <span class="material-symbols-outlined" style="font-size:18px;">play_arrow</span>
+              <span>Üben</span>
+            </button>
+            <button class="scene-detail-extend-btn" id="scene-detail-extend-btn" disabled title="Kommt in v3 (Szene aus der App heraus erweitern)">
+              <span class="material-symbols-outlined" style="font-size:18px;">replay</span>
+              <span>Erweitern</span>
+            </button>
+            <div class="scene-detail-menu-wrap">
+              <button class="scene-detail-menu-btn icon-btn" id="scene-detail-menu-btn" title="Mehr">
+                <span class="material-symbols-outlined" style="font-size:18px;">more_vert</span>
+              </button>
+              <div class="scene-detail-menu" id="scene-detail-menu">
+                <button class="scene-detail-menu-item" id="scene-detail-edit-btn">
+                  <span class="material-symbols-outlined" style="font-size:16px;">edit</span>
+                  Bearbeiten
+                </button>
+                <button class="scene-detail-menu-item" id="scene-detail-archive-btn">
+                  <span class="material-symbols-outlined" style="font-size:16px;">archive</span>
+                  <span id="scene-detail-archive-label">Archivieren</span>
+                </button>
+                <button class="scene-detail-menu-item danger" id="scene-detail-delete-btn">
+                  <span class="material-symbols-outlined" style="font-size:16px;">delete</span>
+                  Endgültig löschen
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Edit-Mode Banner (sichtbar wenn editing) -->
+        <div class="scene-detail-edit-banner" id="scene-detail-edit-banner" style="display:none;">
+          <span class="material-symbols-outlined" style="font-size:18px;">edit_note</span>
+          <span>Bearbeitungs-Modus — Titel/Setting/Sätze anpassen</span>
+          <div class="scene-detail-edit-actions">
+            <button class="side-btn" id="scene-detail-edit-cancel">Verwerfen</button>
+            <button class="side-btn primary" id="scene-detail-edit-save">Speichern</button>
+          </div>
+        </div>
+
+        <div class="scene-detail-bubbles" id="scene-detail-bubbles"></div>
+
+        <div class="scene-detail-footer" id="scene-detail-footer"></div>
+
+      </div>
+
+      <!-- ===== Szenen-Üben-Modus (Vollbild-Overlay — Phase 5) ===== -->
+      <div class="scene-practice-overlay" id="scene-practice-overlay">
+
+        <div class="scene-practice-header">
+          <button class="scene-practice-close-btn" id="scene-practice-close-btn" title="Session beenden">
+            <span class="material-symbols-outlined" style="font-size:22px;">close</span>
+          </button>
+          <div class="scene-practice-meta">
+            <div class="scene-practice-title" id="scene-practice-title">—</div>
+            <div class="scene-practice-counter" id="scene-practice-counter">Satz — von —</div>
+          </div>
+          <div class="scene-practice-progress">
+            <div class="scene-practice-progress-fill" id="scene-practice-progress-fill"></div>
+          </div>
+        </div>
+
+        <!-- View A: aktive Satz-Karte (vor und nach Reveal) -->
+        <div class="scene-practice-card-view" id="scene-practice-card-view">
+
+          <!-- Vorherige Karte als Kontext (dimmend darüber) -->
+          <div class="scene-practice-prev" id="scene-practice-prev" style="display:none;"></div>
+
+          <div class="scene-practice-setting" id="scene-practice-setting" style="display:none;"></div>
+
+          <div class="scene-practice-role-tag" id="scene-practice-role-tag"></div>
+
+          <div class="scene-practice-card" id="scene-practice-card">
+            <div class="scene-practice-side scene-practice-de-side">
+              <div class="scene-practice-side-label">Deutsch</div>
+              <div class="scene-practice-de" id="scene-practice-de">—</div>
+            </div>
+
+            <!-- Reveal-Knopf für self-Karten (vor Reveal) -->
+            <button class="scene-practice-reveal-btn" id="scene-practice-reveal-btn">
+              <span class="material-symbols-outlined" style="font-size:20px;">visibility</span>
+              <span>Aufdecken</span>
+              <kbd class="scene-practice-kbd">Leertaste</kbd>
+            </button>
+
+            <!-- ES-Seite (nach Reveal, oder direkt für other-Karten) -->
+            <div class="scene-practice-side scene-practice-es-side" id="scene-practice-es-side" style="display:none;">
+              <div class="scene-practice-divider"></div>
+              <div class="scene-practice-side-label">Español</div>
+              <div class="scene-practice-es" id="scene-practice-es">—</div>
+              <div class="scene-practice-audio-actions">
+                <button class="scene-practice-play-btn" id="scene-practice-play-btn" title="Abspielen">
+                  <span class="material-symbols-outlined fill" style="font-size:26px;">volume_up</span>
+                </button>
+                <button class="scene-practice-again-btn" id="scene-practice-again-btn" title="Nochmal hören">
+                  <span class="material-symbols-outlined" style="font-size:18px;">replay</span>
+                  Nochmal
+                </button>
+              </div>
+              <div class="scene-practice-srs-pill" id="scene-practice-srs-pill"></div>
+            </div>
+          </div>
+
+          <!-- Weiter-Knopf (nach Reveal oder für other-Karten) -->
+          <button class="scene-practice-next-btn" id="scene-practice-next-btn" style="display:none;">
+            <span>Weiter</span>
+            <span class="material-symbols-outlined" style="font-size:20px;">arrow_forward</span>
+            <kbd class="scene-practice-kbd">Leertaste</kbd>
+          </button>
+        </div>
+
+        <!-- View B: Summary nach letztem Satz -->
+        <div class="scene-practice-summary-view" id="scene-practice-summary-view" style="display:none;">
+          <div class="scene-practice-summary-icon">
+            <span class="material-symbols-outlined" style="font-size:48px;">check_circle</span>
+          </div>
+          <h2 id="scene-practice-summary-title">Run abgeschlossen</h2>
+          <p id="scene-practice-summary-sub">—</p>
+          <div class="scene-practice-summary-stats" id="scene-practice-summary-stats"></div>
+          <div class="scene-practice-summary-actions">
+            <button class="scene-practice-summary-btn" id="scene-practice-summary-again">Nochmal üben</button>
+            <button class="scene-practice-summary-btn primary" id="scene-practice-summary-done">Fertig</button>
+          </div>
+        </div>
+
+      </div>
+
       <!-- ===== Statistiken (eigene Seite) ===== -->
       <div class="stats-page" id="stats-page">
 
@@ -870,6 +1070,44 @@
           </div>
         </div>
 
+        <!-- Szenen-Praxis (v1) -->
+        <div class="stats-card" id="stats-scenes-card" style="display:none;">
+          <div class="stats-card-header">
+            <h2>Szenen-Praxis</h2>
+            <span class="stats-card-sub" id="stats-scenes-sub">—</span>
+          </div>
+          <div class="stats-due-row">
+            <div class="stats-due-icon primary"><span class="material-symbols-outlined" style="font-size:20px;">forum</span></div>
+            <div class="stats-due-text">
+              <p class="stats-due-title">aktive Szenen</p>
+              <p class="stats-due-sub">draft + active in deinem Pool</p>
+            </div>
+            <span class="stats-due-num" id="stats-scenes-active-num">0</span>
+          </div>
+          <div class="stats-due-row">
+            <div class="stats-due-icon warning"><span class="material-symbols-outlined" style="font-size:20px;">play_arrow</span></div>
+            <div class="stats-due-text">
+              <p class="stats-due-title">heute geübt</p>
+              <p class="stats-due-sub">Szenen-Runs heute</p>
+            </div>
+            <span class="stats-due-num" id="stats-scenes-today-num">0</span>
+          </div>
+          <div class="stats-due-row">
+            <div class="stats-due-icon" style="background:var(--learned-soft); color:var(--learned);"><span class="material-symbols-outlined" style="font-size:20px;">check_circle</span></div>
+            <div class="stats-due-text">
+              <p class="stats-due-title">beherrscht</p>
+              <p class="stats-due-sub">>=10 Runs + alle self gelernt</p>
+            </div>
+            <span class="stats-due-num" id="stats-scenes-mastered-num">0</span>
+          </div>
+          <div class="stats-card-footer">
+            <button class="stats-cta-btn" id="stats-scenes-cta">
+              <span class="material-symbols-outlined" style="font-size:16px;">forum</span>
+              Zu den Szenen
+            </button>
+          </div>
+        </div>
+
         <!-- Insel-Grid -->
         <h3 class="stats-section-title">Fortschritt pro Sprachinsel</h3>
         <div class="stats-inseln-grid" id="stats-inseln-grid"></div>
@@ -958,6 +1196,79 @@
 
     </main>
   </div>
+
+  <!-- ===== Szenen-Import-Modal (v1 — Phase 2) ===== -->
+  <dialog id="scene-import-dialog" class="scene-import-dialog">
+    <div class="scene-import-inner">
+      <header class="scene-import-header">
+        <div>
+          <h2>Szene importieren</h2>
+          <p>TSV-Block aus einer Cowork-/claude.ai-Konversation einfügen.</p>
+        </div>
+        <button class="icon-btn" id="scene-import-close" title="Abbrechen">
+          <span class="material-symbols-outlined" style="font-size:18px;">close</span>
+        </button>
+      </header>
+
+      <section class="scene-import-section">
+        <div class="scene-import-label">Titel</div>
+        <input type="text" id="scene-import-title" placeholder="z.B. Morgen-Routine mit dem Baby" autocomplete="off" />
+      </section>
+
+      <section class="scene-import-section">
+        <div class="scene-import-label">Setting <span class="scene-import-hint">(1–2 Zeilen Kontext)</span></div>
+        <textarea id="scene-import-setting" rows="2" placeholder="z.B. Vor dem Wickeltisch, Baby ist quengelig"></textarea>
+      </section>
+
+      <section class="scene-import-section">
+        <div class="scene-import-label">Rollen</div>
+        <div class="scene-import-roles" id="scene-import-roles"></div>
+        <div class="scene-import-roles-add">
+          <input type="text" id="scene-import-role-input" placeholder="Rolle hinzufügen (z.B. baby, frau, carlos)" autocomplete="off" />
+          <button type="button" class="side-btn" id="scene-import-role-add-btn">+ Rolle</button>
+        </div>
+      </section>
+
+      <section class="scene-import-section">
+        <div class="scene-import-label">
+          TSV einfügen
+          <span class="scene-import-hint">(Format: <code>rolle&nbsp;⇥&nbsp;DE&nbsp;⇥&nbsp;ES</code> pro Zeile)</span>
+        </div>
+        <textarea id="scene-import-tsv" rows="8" placeholder="self&#9;Wie hast du geschlafen?&#9;¿Cómo amaneciste?&#10;maria&#9;Gut, danke. Und du?&#9;Bien, gracias. ¿Y vos?"></textarea>
+        <div class="scene-import-tsv-actions">
+          <button type="button" class="side-btn" id="scene-import-parse-btn">Vorschau aktualisieren</button>
+          <small class="scene-import-hint" id="scene-import-parse-status">Noch kein TSV-Inhalt geparsed.</small>
+        </div>
+      </section>
+
+      <section class="scene-import-section">
+        <div class="scene-import-label">
+          Sätze
+          <span class="scene-import-hint" id="scene-import-count-hint">— ausgewählt</span>
+        </div>
+        <div class="scene-import-sentences" id="scene-import-sentences">
+          <div class="scene-import-empty">Vorschau erscheint hier, sobald TSV eingefügt ist.</div>
+        </div>
+      </section>
+
+      <footer class="scene-import-footer">
+        <label class="scene-import-check">
+          <input type="checkbox" id="scene-import-audio" />
+          <span>Audio direkt erzeugen</span>
+          <small>(ElevenLabs-Call pro Satz — Kosten beachten)</small>
+        </label>
+        <label class="scene-import-check">
+          <input type="checkbox" id="scene-import-flat" />
+          <span>Flach statt als Szene importieren</span>
+          <small>(als normale User-Sätze ohne Szenen-Klammer)</small>
+        </label>
+        <div class="scene-import-actions">
+          <button type="button" class="side-btn" id="scene-import-cancel">Abbrechen</button>
+          <button type="button" class="side-btn primary" id="scene-import-submit" disabled>Szene anlegen</button>
+        </div>
+      </footer>
+    </div>
+  </dialog>
 
   <!-- Toast -->
   <div class="toast" id="toast"></div>
