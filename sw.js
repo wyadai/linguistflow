@@ -18,7 +18,7 @@
  * (e.g. https://<user>.github.io/<repo>/) without changes.
  */
 
-const VERSION = "lf-v6-2026-05-19-loginfix";
+const VERSION = "lf-v7-2026-05-21-introglossika";
 const SHELL_CACHE = "shell-" + VERSION;
 const AUDIO_CACHE = "audio-" + VERSION;
 

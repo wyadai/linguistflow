@@ -1905,7 +1905,8 @@ function prev() {
   else if (state.mode !== "recall" && state.isPlaying && !state.autoPlay) pause();
 }
 audioEl.addEventListener("ended", function () {
-  if (state.mode === "car") return; // Car Mode hat einen eigenen Handler
+  if (state.mode === "car") return;   // Car Mode hat einen eigenen Handler
+  if (state.mode === "intro") return; // Intro Mode hat eigenen Auto-Advance-Handler
   // Saetze-Page preview: ignore main-player auto-advance.
   if (state._saetzePreviewActive) { state._saetzePreviewActive = false; return; }
   state.repeatCount++;
@@ -2628,13 +2629,35 @@ function renderStatsPage() {
   }
 }
 
-// CTA: "Fokus-Session starten" → schließt Stats-Page und öffnet Fokus
-// (Single-Card-Variante des SRS-Recalls, der primäre Recall-Weg seit Phase A).
+// CTA: "Fokus-Session starten" → schließt Stats-Page und startet Fokus direkt
+// mit genau den SRS-fälligen Karten. Kein Setup-Screen dazwischen — der User
+// hat oben die Zahl "X heute fällig" gesehen und erwartet, dass die Session
+// jetzt genau diese Karten enthält. Konfig wird gesetzt auf "alle Stufen,
+// alle Kategorien, alle Karten, zufällig"; focusEligibleSentences() filtert
+// dann via recallQueue() auf die heute-fälligen + Smart Fallback.
 if (statsRecallCtaBtn) {
   statsRecallCtaBtn.onclick = function () {
     closeStatsPage();
+    if (typeof focus !== "undefined") {
+      focus.cats = new Set();
+      focus.ratings = new Set();   // empty = kein Rating-Filter (alle Stufen)
+      focus.count = "all";
+      focus.order = "random";
+      // Picker-UI synchronisieren, damit ein evtl. späterer Setup-Aufruf
+      // den gleichen Zustand zeigt (sonst Verwirrung).
+      if (typeof buildFocusCatPicker === "function") buildFocusCatPicker();
+      if (typeof buildFocusRatingPicker === "function") buildFocusRatingPicker();
+      if (focusCountPickerEl) focusCountPickerEl.querySelectorAll(".focus-count-chip").forEach(function (b) {
+        b.classList.toggle("active", b.dataset.count === "all");
+      });
+      if (focusOrderPickerEl) focusOrderPickerEl.querySelectorAll(".focus-order-chip").forEach(function (b) {
+        b.classList.toggle("active", b.dataset.order === "random");
+      });
+    }
+    // Fokus-Modus aktivieren + Session direkt starten (überspringt Setup-View).
     if (typeof setFocusModeActive === "function") setFocusModeActive();
     else if (focusBtn) focusBtn.click();
+    if (typeof startFocusSession === "function") startFocusSession();
   };
 }
 
@@ -2743,18 +2766,21 @@ function _closeAllPageOverlays() {
 
 if (sideIntroLink) {
   sideIntroLink.onclick = function () {
+    closeSidePanel();
     _closeAllPageOverlays();
     if (introBtn && !introBtn.disabled) introBtn.click();
   };
 }
 if (sideCarLink) {
   sideCarLink.onclick = function () {
+    closeSidePanel();
     _closeAllPageOverlays();
     if (carBtn) carBtn.click();
   };
 }
 if (sideFocusLink) {
   sideFocusLink.onclick = function () {
+    closeSidePanel();
     _closeAllPageOverlays();
     if (focusBtn) focusBtn.click();
   };
@@ -3529,6 +3555,9 @@ function revealFocusCard() {
   focusSideEsEl.style.display = "flex";
   focusRatingsEl.style.display = "grid";
   renderFocusMnemonic();
+  // Autoplay nach Reveal — der Reveal-Klick ist die User-Geste,
+  // also läuft das in der gleichen Chain und die Autoplay-Policy ist happy.
+  playFocusAudio();
 }
 
 function renderFocusMnemonic() {
@@ -4323,6 +4352,14 @@ const introSummaryMoreBtn = document.getElementById("intro-summary-more");
 // gestaffelte Einführung statt einer überfordernden Mass-Promotion.
 const INTRO_POOL_SIZE = 5;
 
+// Glossika-Style Expositions-Anzahl: jede Karte pro Session INTRO_REPS-mal,
+// in runden-weise shuffleter Reihenfolge. 5 Karten × 5 Wiederholungen = 25
+// Plays pro Session. Mit Auto-Advance auf Audio-Ende läuft das passiv durch,
+// "Nochmal" replayed nur den aktuellen Satz, "Verstanden" überspringt eine
+// Wiederholung manuell. Issue-Quelle: User-Feedback Mai 2026 ("jetzt wird
+// jede der 5 Karte nur einmal angezeigt").
+const INTRO_REPS = 5;
+
 function buildIntroQueue() {
   const introStage = [];
   const backlog = [];
@@ -4355,12 +4392,27 @@ function buildIntroQueue() {
     pool = pool.concat(newcomers);
   }
 
-  // Pool selbst gemischt durchgehen (sonst kämen immer die reifsten zuerst)
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+  // Glossika-Style: jede Karte INTRO_REPS-mal, runden-weise shuffled.
+  // Statt einem Pool von N Karten à 1 Anzeige → N Karten × INTRO_REPS Anzeigen
+  // (typisch 5×5 = 25). Auto-Advance auf Audio-Ende loopt passiv durch, der
+  // User klickt nur bei Bedarf. Pool-Erhalt: in jeder Runde wird die gleiche
+  // Pool-Karten-Liste frisch geshuffled — Cards sehen sich aus → kein Block
+  // gleicher Karten hintereinander, aber jede Karte kommt garantiert REPS-mal.
+  const queue = [];
+  for (let r = 0; r < INTRO_REPS; r++) {
+    const round = pool.slice();
+    for (let i = round.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = round[i]; round[i] = round[j]; round[j] = t;
+    }
+    // Vermeide direkte Doppelung an Rundengrenzen (sonst kommt z.B. Karte A
+    // als letzte einer Runde und als erste der nächsten direkt nochmal).
+    if (r > 0 && queue.length > 0 && round.length > 1 && round[0] === queue[queue.length - 1]) {
+      const t = round[0]; round[0] = round[1]; round[1] = t;
+    }
+    for (const id of round) queue.push(id);
   }
-  return pool;
+  return queue;
 }
 
 // Einmalige Migration: wenn der User aus der alten unbegrenzten Logik mehr als
@@ -4407,8 +4459,10 @@ function showIntroCard() {
   const s = getSentenceById(id);
   if (!s) { intro.idx++; showIntroCard(); return; }
   const count = getIntroCount(id);
-  // Progress header
-  introProgressTextEl.textContent = "Karte " + (intro.idx + 1) + " von " + intro.queue.length;
+  // Reset Auto-Advance-Pause für die neue Wiederholung
+  intro._pauseAutoAdvance = false;
+  // Progress header — "Wiederholung X / Y" weil bei Glossika 5 Karten × 5 Reps = 25
+  introProgressTextEl.textContent = "Wiederholung " + (intro.idx + 1) + " / " + intro.queue.length;
   const remaining = introPoolCount();
   introProgressPoolEl.textContent = remaining + " in Einführung";
   const pct = ((intro.idx) / intro.queue.length) * 100;
@@ -4456,14 +4510,34 @@ introPlayBtn.onclick = function () {
   audioEl.play().catch(function (err) { console.warn("Intro play failed:", err); });
 };
 
+// Glossika-Stil Auto-Advance: nach jedem Audio-Ende zur nächsten Wiederholung.
+// Greift NUR im Intro-Mode (der globale audio-ended-Listener returnt früh
+// für state.mode === "intro"). Nochmal-Klicks setzen _pauseAutoAdvance, damit
+// der nächste End-Tick nicht durchspringt und der User stehenbleibt.
+audioEl.addEventListener("ended", function () {
+  if (state.mode !== "intro" || !intro.active) return;
+  if (intro._pauseAutoAdvance) { intro._pauseAutoAdvance = false; return; }
+  // Auto-Advance verwendet die gleiche Logik wie der Verstanden-Button
+  // (intro_count hochzählen + showIntroCard).
+  introGotBtn.click();
+});
+
 introAgainBtn.onclick = function () {
   if (!intro.active) return;
-  // "Nochmal": keep current count, move card to end of queue
+  // "Nochmal": Audio einmal neu abspielen, KEIN Advance.
+  // Karte kommt sowieso noch INTRO_REPS-mal in der Queue dran (Glossika-Stil),
+  // also macht Pushen ans Ende keinen Sinn mehr. Mit _pauseAutoAdvance=true
+  // verhindern wir, dass der Audio-Ended-Handler nach dem Replay vorwärts springt.
   const id = intro.queue[intro.idx];
-  intro.queue.push(id);
+  const s = getSentenceById(id);
+  if (!s) return;
   intro.again++;
-  intro.idx++;
-  showIntroCard();
+  intro._pauseAutoAdvance = true;
+  const src = audioSrcFor(s);
+  if (!src) return;
+  audioEl.src = src;
+  audioEl.playbackRate = state.speed || 1.0;
+  audioEl.play().catch(function (err) { console.warn("Intro replay failed:", err); });
 };
 
 introGotBtn.onclick = function () {
@@ -4472,8 +4546,10 @@ introGotBtn.onclick = function () {
   const before = getIntroCount(id);
   const after = Math.min(before + 1, 5);
   setIntroCount(id, after);
-  if (after >= 5) intro.graduated++;
-  else intro.advanced++;
+  // graduated zählt nur den Übergang <5 → 5 (einmalig pro Karte).
+  // Spätere "Verstanden"-Klicks an einer schon graduierten Karte ändern nichts.
+  if (before < 5 && after >= 5) intro.graduated++;
+  else if (after > before) intro.advanced++;
   intro.idx++;
   showIntroCard();
 };
@@ -4482,11 +4558,17 @@ function endIntroSession() {
   intro.active = false;
   introCardViewEl.style.display = "none";
   introSummaryEl.style.display = "flex";
-  const totalSeen = intro.graduated + intro.advanced + intro.again;
-  introSummaryTextEl.textContent = "Du hast " + totalSeen + " Wiederholungen durchgegangen.";
+  // Bei Glossika-Stil ist intro.idx = Anzahl tatsächlich gesehener Wiederholungen
+  // (jedes Advance, ob manuell oder per Auto-Advance, zählt eins hoch).
+  // intro.queue.length ist die geplante Session-Größe (typ. 25 = 5 × 5).
+  const totalReps = intro.idx;
+  const target = intro.queue.length;
+  introSummaryTextEl.textContent = totalReps >= target
+    ? "Du hast " + totalReps + " Wiederholungen geschafft."
+    : "Du hast " + totalReps + " von " + target + " Wiederholungen gemacht.";
   introSummaryStatsEl.innerHTML =
     '<div class="intro-summary-stat"><div class="intro-summary-stat-num">' + intro.graduated + '</div><div class="intro-summary-stat-label">graduiert</div></div>' +
-    '<div class="intro-summary-stat"><div class="intro-summary-stat-num">' + intro.advanced + '</div><div class="intro-summary-stat-label">weiter</div></div>' +
+    '<div class="intro-summary-stat"><div class="intro-summary-stat-num">' + totalReps + '</div><div class="intro-summary-stat-label">Wdh.</div></div>' +
     '<div class="intro-summary-stat"><div class="intro-summary-stat-num">' + intro.again + '</div><div class="intro-summary-stat-label">nochmal</div></div>';
   // Show "5 more from backlog" only if there's still backlog
   const stillBacklog = allSentences().some(function (s) {
