@@ -3893,6 +3893,326 @@ body.intro .intro-card-view { display: block; }
 }
 
 /* =====================================================================
+   ENGAGEMENT-LAYER (Mai 2026)
+   Vier Dashboard-Elemente zur Erhöhung der täglichen Rückkehrrate.
+   Gebaut auf den bestehenden Tokens — keine neuen Farb-Tokens.
+   Siehe ENGAGEMENT_KONZEPT.md für Begründung pro Feature.
+   ===================================================================== */
+
+/* ---- G1: Dein Warum als sichtbarer Anker ---- */
+.why-anchor {
+  margin: 8px 0 14px;
+}
+.why-anchor-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: transparent;
+  border: 1px dashed var(--outline-variant);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  color: var(--secondary);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.why-anchor-empty em {
+  font-style: italic;
+  color: var(--outline);
+  margin-left: 4px;
+}
+.why-anchor-empty:hover {
+  border-color: var(--primary);
+  color: var(--on-surface);
+  background: var(--surface-low);
+}
+.why-anchor-quote {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 4px 6px 2px;
+}
+.why-anchor-icon {
+  color: var(--outline-variant);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.why-anchor-text {
+  flex: 1;
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--secondary);
+}
+.why-anchor-edit {
+  background: transparent;
+  border: 0;
+  color: var(--outline);
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  opacity: 0;
+  transition: opacity .15s ease, background .15s ease, color .15s ease;
+  flex-shrink: 0;
+}
+.why-anchor:hover .why-anchor-edit { opacity: 1; }
+.why-anchor-edit:hover { background: var(--surface-high); color: var(--on-surface); }
+
+/* ---- D1: One-Tap-Start Hero ---- */
+.hero-listen-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  background: var(--primary);
+  color: var(--on-primary);
+  border: 0;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  box-shadow: var(--shadow);
+  transition: background .15s ease, transform .08s ease, box-shadow .15s ease;
+}
+.hero-listen-btn:hover {
+  background: var(--primary-container);
+  box-shadow: var(--shadow-hover);
+}
+.hero-listen-btn:active { transform: translateY(1px); }
+.hero-listen-btn:disabled {
+  background: var(--surface-high);
+  color: var(--secondary);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.hero-listen-icon {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.14);
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.hero-listen-btn:disabled .hero-listen-icon {
+  background: var(--surface-highest);
+  color: var(--secondary);
+}
+.hero-listen-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.hero-listen-label {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.hero-listen-sub {
+  font-size: 12px;
+  opacity: 0.78;
+  margin-top: 2px;
+}
+.hero-listen-chip {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(255,255,255,0.14);
+  flex-shrink: 0;
+}
+.hero-listen-btn:disabled .hero-listen-chip {
+  background: var(--surface-highest);
+  color: var(--secondary);
+}
+
+/* ---- F1: Streak-Kette ---- */
+.streak-chain {
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin: 8px 0 12px;
+  box-shadow: var(--shadow-sm);
+}
+.streak-chain-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.streak-chain-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--secondary);
+}
+.streak-chain-hint {
+  font-size: 11px;
+  color: var(--outline);
+  font-style: italic;
+}
+.streak-chain-dots {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+}
+.streak-dot {
+  flex: 1;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--surface-high);
+  border: 1px solid var(--outline-variant);
+  transition: background .2s ease, border-color .2s ease;
+}
+.streak-dot.active {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.streak-dot.today {
+  outline: 2px solid var(--warning);
+  outline-offset: 1px;
+}
+.streak-dot.today:not(.active) {
+  animation: streak-today-pulse 2s ease-in-out infinite;
+}
+@keyframes streak-today-pulse {
+  0%, 100% { background: var(--surface-high); }
+  50% { background: var(--warning-soft); }
+}
+
+/* ---- E3: Aspirational Bucket "fast erinnert" ---- */
+.aspirational-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: var(--warning-soft);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background .15s ease, transform .08s ease, box-shadow .15s ease;
+  box-shadow: var(--shadow-sm);
+}
+.aspirational-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+.aspirational-card:active { transform: translateY(1px); }
+.aspirational-icon {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--warning);
+  color: #fff;
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.aspirational-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.aspirational-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--warning-ink);
+}
+.aspirational-sub {
+  font-size: 12px;
+  color: var(--warning-ink);
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aspirational-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warning-ink);
+  flex-shrink: 0;
+}
+
+/* ---- Hide on non-dashboard views ---- */
+body.car .why-anchor,
+body.car .hero-listen-btn,
+body.car .streak-chain,
+body.car .aspirational-card,
+body.focus .why-anchor,
+body.focus .hero-listen-btn,
+body.focus .streak-chain,
+body.focus .aspirational-card,
+body.new-sentence .why-anchor,
+body.new-sentence .hero-listen-btn,
+body.new-sentence .streak-chain,
+body.new-sentence .aspirational-card,
+body.saetze .why-anchor,
+body.saetze .hero-listen-btn,
+body.saetze .streak-chain,
+body.saetze .aspirational-card,
+body.stats .why-anchor,
+body.stats .hero-listen-btn,
+body.stats .streak-chain,
+body.stats .aspirational-card,
+body.settings .why-anchor,
+body.settings .hero-listen-btn,
+body.settings .streak-chain,
+body.settings .aspirational-card,
+body.scenes .why-anchor,
+body.scenes .hero-listen-btn,
+body.scenes .streak-chain,
+body.scenes .aspirational-card,
+body.scene-detail .why-anchor,
+body.scene-detail .hero-listen-btn,
+body.scene-detail .streak-chain,
+body.scene-detail .aspirational-card,
+body.scene-practice .why-anchor,
+body.scene-practice .hero-listen-btn,
+body.scene-practice .streak-chain,
+body.scene-practice .aspirational-card { display: none !important; }
+
+/* Im Recall-Modus blenden wir nur den großen Hero-Button + Aspirational aus
+   (beide sind Listen-orientiert), Warum-Anker und Streak-Kette bleiben sichtbar. */
+body.recall .hero-listen-btn,
+body.recall .aspirational-card { display: none !important; }
+
+/* Mobile: kompakter Hero, kleinerer Chain */
+@media (max-width: 640px) {
+  .hero-listen-btn { padding: 14px 14px; gap: 12px; border-radius: var(--radius); }
+  .hero-listen-icon { width: 38px; height: 38px; }
+  .hero-listen-label { font-size: 15px; }
+  .hero-listen-sub { font-size: 11px; }
+  .hero-listen-chip { font-size: 10px; padding: 4px 8px; }
+  .streak-chain { padding: 10px 12px; }
+  .streak-dot { height: 12px; }
+  .aspirational-card { padding: 10px 12px; gap: 10px; }
+  .aspirational-icon { width: 30px; height: 30px; }
+  .aspirational-title { font-size: 13px; }
+  .aspirational-sub { font-size: 11px; }
+  .why-anchor-text { font-size: 13px; }
+}
+
+
+/* =====================================================================
    SZENEN — v1 (Import-Modal + Liste + Page)
    ===================================================================== */
 
@@ -3902,59 +4222,89 @@ body.scenes #side-scenes-link,
 body.scenes #side-scenes-link .side-sum-icon,
 body.scenes #side-scenes-link { color: var(--primary); }
 
-/* ----- Import-Modal (native <dialog>) ----- */
-.scene-import-dialog {
-  border: none;
-  padding: 0;
-  border-radius: var(--radius-lg);
-  background: var(--surface-lowest);
-  box-shadow: var(--shadow-lg);
-  max-width: min(720px, 95vw);
-  width: 100%;
-  max-height: min(90vh, 800px);
-  color: var(--on-surface);
-}
-.scene-import-dialog::backdrop {
-  background: rgba(9, 20, 38, 0.55);
-}
-.scene-import-inner {
-  display: flex;
-  flex-direction: column;
-  max-height: inherit;
-  overflow: hidden;
-}
-.scene-import-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+/* ----- Import-Page (body.scene-import) ----- */
+body.scene-import .stats-row,
+body.scene-import .progress-row,
+body.scene-import .progress-bar,
+body.scene-import .mode-buttons,
+body.scene-import .hint,
+body.scene-import .rating-filter,
+body.scene-import .toolbar,
+body.scene-import #cards,
+body.scene-import .no-results,
+body.scene-import .focus-session,
+body.scene-import .car-session,
+body.scene-import .intro-session,
+body.scene-import .player,
+body.scene-import .fab { display: none !important; }
+
+.scene-import-page { display: none; }
+body.scene-import .scene-import-page { display: block; }
+.scene-import-page { margin-top: 4px; padding-bottom: 32px; }
+
+.scene-import-page-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   gap: 16px;
-  padding: 22px 24px 14px;
-  border-bottom: 1px solid var(--outline-variant);
+  align-items: center;
+  margin-bottom: 18px;
+}
+.scene-import-back-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px 8px 10px;
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-lowest);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px; font-weight: 600;
+  color: var(--on-surface);
   flex-shrink: 0;
 }
-.scene-import-header h2 {
+.scene-import-back-btn:hover { background: var(--surface-high); border-color: var(--primary); }
+.scene-import-page-title { min-width: 0; }
+.scene-import-page-title h2 {
   margin: 0;
-  font-size: 22px; font-weight: 700;
+  font-size: 24px; font-weight: 700;
   color: var(--primary);
   letter-spacing: -0.01em;
 }
-.scene-import-header p {
+.scene-import-page-title p {
   margin: 4px 0 0;
   font-size: 13px; color: var(--secondary);
+  line-height: 1.5;
 }
+.scene-import-submit-top {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 16px;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px; font-weight: 600;
+  flex-shrink: 0;
+}
+.scene-import-submit-top:hover:not(:disabled) {
+  background: var(--primary-container); border-color: var(--primary-container);
+}
+.scene-import-submit-top:disabled {
+  opacity: 0.5; cursor: not-allowed;
+  background: var(--surface-low);
+  color: var(--outline);
+  border-color: var(--outline-variant);
+}
+
 .scene-import-section {
-  padding: 12px 24px;
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  overflow: visible;
-}
-.scene-import-section + .scene-import-section { border-top: 1px solid var(--surface-low); }
-.scene-import-inner > .scene-import-section:nth-of-type(5) {
-  /* Sätze-Liste — die einzige Section, die intern scrollen soll */
-  overflow-y: auto;
-  flex: 1 1 auto;
-  min-height: 120px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 .scene-import-label {
   font-size: 11px; font-weight: 700;
@@ -4039,7 +4389,9 @@ body.scenes #side-scenes-link { color: var(--primary); }
 }
 .scene-import-tsv-actions .side-btn { padding: 6px 14px; font-size: 12px; }
 
-/* Sätze-Liste */
+/* Sätze-Liste — alle Sätze flach, ohne internen Scroll. Die ganze Page
+   scrollt mit dem Browser-Scrollbar; der Submit-Knopf oben rechts bleibt
+   immer im Header sichtbar (sticky-Verhalten siehe weiter unten). */
 .scene-import-sentences {
   display: flex; flex-direction: column; gap: 8px;
   padding-top: 4px;
@@ -4136,15 +4488,17 @@ body.scenes #side-scenes-link { color: var(--primary); }
   margin-top: 2px;
 }
 
-/* Footer */
+/* Footer-Block am Page-Ende — kein sticky, weil der Submit-Knopf oben
+   schon dauerhaft sichtbar ist. Trotzdem als eigene Card visuell abgesetzt. */
 .scene-import-footer {
-  padding: 14px 24px 22px;
-  border-top: 1px solid var(--outline-variant);
   background: var(--surface-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  flex-shrink: 0;
+  gap: 10px;
+  margin-top: 8px;
 }
 .scene-import-check {
   display: flex; align-items: center; gap: 8px;
@@ -4176,10 +4530,12 @@ body.scenes #side-scenes-link { color: var(--primary); }
 }
 
 @media (max-width: 600px) {
-  .scene-import-dialog { max-width: 100vw; max-height: 100vh; border-radius: 0; }
-  .scene-import-header { padding: 16px 18px 12px; }
-  .scene-import-section { padding: 10px 18px; }
-  .scene-import-footer { padding: 12px 18px 18px; }
+  .scene-import-page-header { grid-template-columns: auto auto; gap: 10px; }
+  .scene-import-page-title { grid-column: 1 / -1; order: 3; }
+  .scene-import-page-title h2 { font-size: 20px; }
+  .scene-import-page-title p { font-size: 12px; }
+  .scene-import-submit-top { font-size: 12px; padding: 7px 12px; }
+  .scene-import-section { padding: 12px 14px; }
   .scene-import-row { grid-template-columns: auto 1fr; }
   .scene-import-row-role { grid-column: 1 / -1; }
 }

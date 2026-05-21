@@ -164,6 +164,33 @@
 
     <main class="container">
 
+      <!-- ===== Dashboard-Anker (G1) — "Dein Warum" als sichtbarer Anker ===== -->
+      <div class="why-anchor" id="why-anchor">
+        <button class="why-anchor-empty" id="why-anchor-empty">
+          <span class="material-symbols-outlined" style="font-size:18px;">format_quote</span>
+          <span>Was ist dein Warum? <em>Eine Zeile genügt — sie begleitet dich täglich.</em></span>
+        </button>
+        <div class="why-anchor-quote" id="why-anchor-quote" style="display:none;">
+          <span class="material-symbols-outlined why-anchor-icon" style="font-size:18px;">format_quote</span>
+          <span class="why-anchor-text" id="why-anchor-text"></span>
+          <button class="why-anchor-edit" id="why-anchor-edit" title="Bearbeiten">
+            <span class="material-symbols-outlined" style="font-size:14px;">edit</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ===== One-Tap-Start Hero (D1) ===== -->
+      <button class="hero-listen-btn" id="hero-listen-btn">
+        <span class="hero-listen-icon">
+          <span class="material-symbols-outlined fill" style="font-size:26px;">play_arrow</span>
+        </span>
+        <span class="hero-listen-text">
+          <span class="hero-listen-label" id="hero-listen-label">Heute hören</span>
+          <span class="hero-listen-sub" id="hero-listen-sub">5 Minuten Shadowing — direkt los, ohne Setup.</span>
+        </span>
+        <span class="hero-listen-chip" id="hero-listen-chip">5 Min</span>
+      </button>
+
       <!-- Stats cards -->
       <div class="stats-row">
         <div class="stat-card">
@@ -185,6 +212,32 @@
           </div>
         </div>
       </div>
+
+      <!-- ===== Streak-Kette (F1) ===== -->
+      <div class="streak-chain" id="streak-chain">
+        <div class="streak-chain-header">
+          <span class="streak-chain-label">Letzte 14 Tage</span>
+          <span class="streak-chain-hint" id="streak-chain-hint">Heute noch keine Aktivität</span>
+        </div>
+        <div class="streak-chain-dots" id="streak-chain-dots"></div>
+      </div>
+
+      <!-- ===== Aspirational Bucket (E3) — "fast erinnert" ===== -->
+      <button class="aspirational-card" id="aspirational-card" style="display:none;">
+        <span class="aspirational-icon">
+          <span class="material-symbols-outlined fill" style="font-size:22px;">bolt</span>
+        </span>
+        <span class="aspirational-text">
+          <span class="aspirational-title">
+            <span id="aspirational-count">0</span> Sätze, die fast sitzen
+          </span>
+          <span class="aspirational-sub" id="aspirational-preview">—</span>
+        </span>
+        <span class="aspirational-cta">
+          Schnell üben
+          <span class="material-symbols-outlined" style="font-size:16px;">arrow_forward</span>
+        </span>
+      </button>
 
       <!-- Progress -->
       <div class="progress-row">
@@ -826,6 +879,85 @@
 
       </div>
 
+      <!-- ===== Szenen-Import (eigene Seite — Phase 2/Refactor) ===== -->
+      <div class="scene-import-page" id="scene-import-page">
+
+        <div class="scene-import-page-header">
+          <button class="scene-import-back-btn" id="scene-import-back-btn" title="Zurück">
+            <span class="material-symbols-outlined" style="font-size:20px;">arrow_back</span>
+            <span>Zurück</span>
+          </button>
+          <div class="scene-import-page-title">
+            <h2>Szene importieren</h2>
+            <p>TSV-Block aus einer Cowork-/claude.ai-Konversation einfügen.</p>
+          </div>
+          <button class="scene-import-submit-top" id="scene-import-submit-top" disabled>
+            <span class="material-symbols-outlined" style="font-size:18px;">check</span>
+            <span id="scene-import-submit-top-label">Szene anlegen</span>
+          </button>
+        </div>
+
+        <section class="scene-import-section">
+          <div class="scene-import-label">Titel</div>
+          <input type="text" id="scene-import-title" placeholder="z.B. Morgen-Routine mit dem Baby" autocomplete="off" />
+        </section>
+
+        <section class="scene-import-section">
+          <div class="scene-import-label">Setting <span class="scene-import-hint">(1–2 Zeilen Kontext)</span></div>
+          <textarea id="scene-import-setting" rows="2" placeholder="z.B. Vor dem Wickeltisch, Baby ist quengelig"></textarea>
+        </section>
+
+        <section class="scene-import-section">
+          <div class="scene-import-label">Rollen</div>
+          <div class="scene-import-roles" id="scene-import-roles"></div>
+          <div class="scene-import-roles-add">
+            <input type="text" id="scene-import-role-input" placeholder="Rolle hinzufügen (z.B. baby, frau, carlos)" autocomplete="off" />
+            <button type="button" class="side-btn" id="scene-import-role-add-btn">+ Rolle</button>
+          </div>
+        </section>
+
+        <section class="scene-import-section">
+          <div class="scene-import-label">
+            TSV einfügen
+            <span class="scene-import-hint">(Format: <code>rolle&nbsp;⇥&nbsp;DE&nbsp;⇥&nbsp;ES</code> pro Zeile)</span>
+          </div>
+          <textarea id="scene-import-tsv" rows="6" placeholder="self&#9;Wie hast du geschlafen?&#9;¿Cómo amaneciste?&#10;maria&#9;Gut, danke. Und du?&#9;Bien, gracias. ¿Y vos?"></textarea>
+          <div class="scene-import-tsv-actions">
+            <button type="button" class="side-btn" id="scene-import-parse-btn">Vorschau aktualisieren</button>
+            <small class="scene-import-hint" id="scene-import-parse-status">Noch kein TSV-Inhalt geparsed.</small>
+          </div>
+        </section>
+
+        <section class="scene-import-section">
+          <div class="scene-import-label">
+            Sätze
+            <span class="scene-import-hint" id="scene-import-count-hint">— ausgewählt</span>
+          </div>
+          <div class="scene-import-sentences" id="scene-import-sentences">
+            <div class="scene-import-empty">Vorschau erscheint hier, sobald TSV eingefügt ist.</div>
+          </div>
+        </section>
+
+        <!-- Options + Submit (sticky footer am Page-Ende) -->
+        <div class="scene-import-footer">
+          <label class="scene-import-check">
+            <input type="checkbox" id="scene-import-audio" />
+            <span>Audio direkt erzeugen</span>
+            <small>(ElevenLabs-Call pro Satz — Kosten beachten)</small>
+          </label>
+          <label class="scene-import-check">
+            <input type="checkbox" id="scene-import-flat" />
+            <span>Flach statt als Szene importieren</span>
+            <small>(als normale User-Sätze ohne Szenen-Klammer)</small>
+          </label>
+          <div class="scene-import-actions">
+            <button type="button" class="side-btn" id="scene-import-cancel">Abbrechen</button>
+            <button type="button" class="side-btn primary" id="scene-import-submit" disabled>Szene anlegen</button>
+          </div>
+        </div>
+
+      </div>
+
       <!-- ===== Szenen-Detail (eigene Seite — Phase 4) ===== -->
       <div class="scene-detail-page" id="scene-detail-page">
 
@@ -1130,6 +1262,22 @@
 
         <section class="settings-section">
           <h3 class="settings-section-title">
+            <span class="material-symbols-outlined" style="font-size:20px;">format_quote</span>
+            Mein Warum
+          </h3>
+          <div class="settings-card">
+            <div class="side-label">Was treibt dich an? <span class="settings-hint" style="margin:0;font-size:11px;">Ein Satz oder zwei. Erscheint dezent oben in der App, als täglicher Anker.</span></div>
+            <textarea id="why-text-input" class="ns-textarea ns-textarea-sm" rows="3" placeholder="z.B. Ich will mit meiner Tochter Spanisch sprechen, bevor sie zu sprechen anfängt."></textarea>
+            <div class="api-actions">
+              <button class="side-btn primary" id="save-why-btn">Speichern</button>
+              <button class="side-btn" id="clear-why-btn">Löschen</button>
+            </div>
+            <small class="side-tiny">Nur sichtbar für dich. Wird mit deinem Profil über Supabase synchronisiert.</small>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h3 class="settings-section-title">
             <span class="material-symbols-outlined" style="font-size:20px;">translate</span>
             Übersetzung (Anthropic)
           </h3>
@@ -1196,79 +1344,6 @@
 
     </main>
   </div>
-
-  <!-- ===== Szenen-Import-Modal (v1 — Phase 2) ===== -->
-  <dialog id="scene-import-dialog" class="scene-import-dialog">
-    <div class="scene-import-inner">
-      <header class="scene-import-header">
-        <div>
-          <h2>Szene importieren</h2>
-          <p>TSV-Block aus einer Cowork-/claude.ai-Konversation einfügen.</p>
-        </div>
-        <button class="icon-btn" id="scene-import-close" title="Abbrechen">
-          <span class="material-symbols-outlined" style="font-size:18px;">close</span>
-        </button>
-      </header>
-
-      <section class="scene-import-section">
-        <div class="scene-import-label">Titel</div>
-        <input type="text" id="scene-import-title" placeholder="z.B. Morgen-Routine mit dem Baby" autocomplete="off" />
-      </section>
-
-      <section class="scene-import-section">
-        <div class="scene-import-label">Setting <span class="scene-import-hint">(1–2 Zeilen Kontext)</span></div>
-        <textarea id="scene-import-setting" rows="2" placeholder="z.B. Vor dem Wickeltisch, Baby ist quengelig"></textarea>
-      </section>
-
-      <section class="scene-import-section">
-        <div class="scene-import-label">Rollen</div>
-        <div class="scene-import-roles" id="scene-import-roles"></div>
-        <div class="scene-import-roles-add">
-          <input type="text" id="scene-import-role-input" placeholder="Rolle hinzufügen (z.B. baby, frau, carlos)" autocomplete="off" />
-          <button type="button" class="side-btn" id="scene-import-role-add-btn">+ Rolle</button>
-        </div>
-      </section>
-
-      <section class="scene-import-section">
-        <div class="scene-import-label">
-          TSV einfügen
-          <span class="scene-import-hint">(Format: <code>rolle&nbsp;⇥&nbsp;DE&nbsp;⇥&nbsp;ES</code> pro Zeile)</span>
-        </div>
-        <textarea id="scene-import-tsv" rows="8" placeholder="self&#9;Wie hast du geschlafen?&#9;¿Cómo amaneciste?&#10;maria&#9;Gut, danke. Und du?&#9;Bien, gracias. ¿Y vos?"></textarea>
-        <div class="scene-import-tsv-actions">
-          <button type="button" class="side-btn" id="scene-import-parse-btn">Vorschau aktualisieren</button>
-          <small class="scene-import-hint" id="scene-import-parse-status">Noch kein TSV-Inhalt geparsed.</small>
-        </div>
-      </section>
-
-      <section class="scene-import-section">
-        <div class="scene-import-label">
-          Sätze
-          <span class="scene-import-hint" id="scene-import-count-hint">— ausgewählt</span>
-        </div>
-        <div class="scene-import-sentences" id="scene-import-sentences">
-          <div class="scene-import-empty">Vorschau erscheint hier, sobald TSV eingefügt ist.</div>
-        </div>
-      </section>
-
-      <footer class="scene-import-footer">
-        <label class="scene-import-check">
-          <input type="checkbox" id="scene-import-audio" />
-          <span>Audio direkt erzeugen</span>
-          <small>(ElevenLabs-Call pro Satz — Kosten beachten)</small>
-        </label>
-        <label class="scene-import-check">
-          <input type="checkbox" id="scene-import-flat" />
-          <span>Flach statt als Szene importieren</span>
-          <small>(als normale User-Sätze ohne Szenen-Klammer)</small>
-        </label>
-        <div class="scene-import-actions">
-          <button type="button" class="side-btn" id="scene-import-cancel">Abbrechen</button>
-          <button type="button" class="side-btn primary" id="scene-import-submit" disabled>Szene anlegen</button>
-        </div>
-      </footer>
-    </div>
-  </dialog>
 
   <!-- Toast -->
   <div class="toast" id="toast"></div>

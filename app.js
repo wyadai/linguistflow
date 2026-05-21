@@ -62,6 +62,9 @@ const state = {
   // Filter for the Meine-Sätze page: "translated" | "pending" | "archived"
   saetzeFilter: "translated",
   mainSort: localStorage.getItem("hl_main_sort") || "oldest",
+  // Engagement-Layer (Mai 2026): "Dein Warum" — persönlicher Motivations-Anker,
+  // dezent oben in der App sichtbar. Synced via profiles.settings.why_text.
+  whyText: localStorage.getItem("hl_why_text") || "",
 };
 
 // ===== User-generated audio blobs (IndexedDB) =====
@@ -378,6 +381,7 @@ function openNewSentencePage() {
   document.body.classList.remove("scenes");
   document.body.classList.remove("scene-detail");
   document.body.classList.remove("scene-practice");
+  document.body.classList.remove("scene-import");
   document.body.classList.add("new-sentence");
   buildNsCatPickers();
   renderNsRecent();
@@ -1381,6 +1385,11 @@ function incrementStat(key, amount) {
     }
   }
   saveJSON("hl_stats", state.stats);
+  // Engagement-Layer: Streak-Kette + Hero-Sub auf Real-Time-Update reagieren lassen,
+  // damit der "Heute aktiv"-Dot beim ersten Play des Tages sofort leuchtet.
+  try {
+    if (typeof renderStreakChain === "function") renderStreakChain();
+  } catch (e) { /* ignore — engagement layer ist optional */ }
 }
 
 function dateKeyFromDate(d) {
@@ -2120,13 +2129,274 @@ function updateProgress() {
   // Recall mode button reflects heute-fällig count (SRS Phase A)
   updateRecallModeBtn();
 
-  // Stat tiles (top of page). Streak is reserved for Phase 5 — placeholder for now.
+  // Stat tiles (top of page).
   const statMastered = document.getElementById("stat-mastered");
   if (statMastered) statMastered.textContent = learned + " / " + total;
+  // Engagement-Layer: aktuellen Streak ins Stat-Tile (vorher Placeholder).
   const statStreak = document.getElementById("stat-streak");
-  if (statStreak && statStreak.textContent.trim() === "— Tage") {
-    // Leave as-is — Phase 5 will populate from real data.
+  if (statStreak) {
+    const streak = computeStreak();
+    statStreak.textContent = streak === 0 ? "— Tage" : (streak + (streak === 1 ? " Tag" : " Tage"));
   }
+  // Engagement-Layer: Dashboard-Elemente (Warum, Hero, Kette, Aspirational).
+  if (typeof renderEngagement === "function") renderEngagement();
+}
+
+// =====================================================================
+// ENGAGEMENT-LAYER (Mai 2026) — G1 Warum-Anker, D1 Hero-Listen,
+// F1 Streak-Kette, E3 Aspirational Bucket.
+// Siehe ENGAGEMENT_KONZEPT.md für die Begründung pro Feature.
+// =====================================================================
+
+// ---- G1: Dein Warum ----------------------------------------------------
+function renderWhyAnchor() {
+  const wrap = document.getElementById("why-anchor");
+  if (!wrap) return;
+  const empty = document.getElementById("why-anchor-empty");
+  const quote = document.getElementById("why-anchor-quote");
+  const text = document.getElementById("why-anchor-text");
+  if (!empty || !quote || !text) return;
+  if (state.whyText && state.whyText.trim()) {
+    empty.style.display = "none";
+    quote.style.display = "flex";
+    text.textContent = state.whyText.trim();
+  } else {
+    empty.style.display = "flex";
+    quote.style.display = "none";
+  }
+}
+function setWhyText(value) {
+  state.whyText = (value || "").trim();
+  localStorage.setItem("hl_why_text", state.whyText);
+  queuePushProfile();
+  renderWhyAnchor();
+}
+
+// ---- D1: One-Tap-Start Hero -------------------------------------------
+function timeOfDayHeroLabel() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 11) return "Morgens hören";
+  if (h >= 11 && h < 14) return "Mittagspause";
+  if (h >= 14 && h < 18) return "Nachmittag hören";
+  if (h >= 18 && h < 23) return "Abend hören";
+  return "Heute hören";
+}
+const QUICK_LISTEN_DURATION_MS = 5 * 60 * 1000; // 5 Minuten
+let _quickListenStopTimer = null;
+
+function renderHeroButton() {
+  const btn = document.getElementById("hero-listen-btn");
+  if (!btn) return;
+  const label = document.getElementById("hero-listen-label");
+  const sub = document.getElementById("hero-listen-sub");
+  if (label) label.textContent = timeOfDayHeroLabel();
+  // Wenn Car-Modus nicht eligible-Sätze hat → Button deaktivieren mit hint.
+  // Defensiv: `car` ist ein const der erst später im Script initialisiert wird —
+  // bei den ersten renderEngagement-Aufrufen (vor Car-Mode-Init) wirft das eine
+  // ReferenceError. Wir fangen sie weg und behandeln als "ready".
+  let eligibleCount = 1;
+  try {
+    if (typeof carEligibleSentences === "function") {
+      eligibleCount = carEligibleSentences().length;
+    }
+  } catch (e) { /* car-const noch nicht initialisiert — first-render-OK */ }
+  if (eligibleCount === 0) {
+    btn.disabled = true;
+    if (sub) sub.textContent = "Erst Audio generieren — Auto-Modus braucht Audio-Karten.";
+  } else {
+    btn.disabled = false;
+    if (sub) sub.textContent = "5 Minuten Shadowing — direkt los, ohne Setup.";
+  }
+}
+function startQuickListenSession() {
+  if (typeof setCarModeActive !== "function" || typeof startCarSession !== "function") return;
+  const eligible = carEligibleSentences();
+  if (!eligible.length) {
+    showToast("Keine Audio-Karten in deinem Auto-Modus-Filter. Setup öffnen?", 4000);
+    setCarModeActive();
+    return;
+  }
+  // Auto-Modus-Body-Class setzen + direkt in die Session springen (überspringt Setup).
+  setCarModeActive();
+  startCarSession();
+  // 5-Min-Auto-Stop. Bestehender Timer wird abgeräumt, falls man's nochmal drückt.
+  if (_quickListenStopTimer) clearTimeout(_quickListenStopTimer);
+  _quickListenStopTimer = setTimeout(function () {
+    _quickListenStopTimer = null;
+    if (typeof car !== "undefined" && car.active) {
+      exitCarSession();
+      document.body.classList.remove("car");
+      document.body.classList.remove("car-driving");
+      document.body.classList.remove("car-night");
+      // Zurück in Listen-Modus, damit User wieder auf dem Dashboard landet.
+      const lb = document.getElementById("listen-mode-btn");
+      if (lb) lb.click();
+      showToast("5-Minuten-Session geschafft. Bis morgen!", 4500);
+    }
+  }, QUICK_LISTEN_DURATION_MS);
+}
+
+// ---- F1: Streak-Kette --------------------------------------------------
+function renderStreakChain() {
+  const dots = document.getElementById("streak-chain-dots");
+  const hint = document.getElementById("streak-chain-hint");
+  if (!dots) return;
+  dots.innerHTML = "";
+  const today = new Date();
+  const todayKey = dateKeyFromDate(today);
+  let todayActive = false;
+  let activeDays = 0;
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = dateKeyFromDate(d);
+    const day = state.stats.daily && state.stats.daily[key];
+    const active = day && (day.plays >= 1 || day.reveals >= 1 || day.rated >= 1 || (day.scene_runs || 0) >= 1);
+    const isToday = key === todayKey;
+    if (isToday) todayActive = !!active;
+    if (active) activeDays++;
+    const dot = document.createElement("span");
+    dot.className = "streak-dot" + (active ? " active" : "") + (isToday ? " today" : "");
+    // Format date for tooltip
+    const opts = { weekday: "short", day: "2-digit", month: "short" };
+    const label = d.toLocaleDateString("de-DE", opts);
+    dot.title = label + (active ? " · aktiv" : " · keine Aktivität");
+    dots.appendChild(dot);
+  }
+  if (hint) {
+    if (todayActive) {
+      hint.textContent = activeDays + " / 14 Tage aktiv";
+      hint.style.color = "var(--learned)";
+    } else {
+      hint.textContent = "Heute noch keine Aktivität";
+      hint.style.color = "var(--warning)";
+    }
+  }
+}
+
+// ---- E3: Aspirational Bucket ------------------------------------------
+function aspirationalCardIds() {
+  // Karten, die der User aktuell mit 2 Sternen ("Okay") bewertet hat —
+  // also fast aber noch nicht sicher. Sortiert nach last_reviewed_at desc,
+  // max 5. Filter aus archived/pending/non-active raus.
+  const candidates = allSentences().filter(function (s) {
+    if (s.archived) return false;
+    if (s.pending) return false;
+    if (typeof stageOf === "function" && stageOf(s.id) !== "active") return false;
+    return state.ratings[s.id] === 2;
+  });
+  candidates.sort(function (a, b) {
+    const ar = (state.cardState[a.id] && state.cardState[a.id].last_reviewed_at) || "0000-00-00";
+    const br = (state.cardState[b.id] && state.cardState[b.id].last_reviewed_at) || "0000-00-00";
+    return br.localeCompare(ar);
+  });
+  return candidates.slice(0, 5).map(function (s) { return s.id; });
+}
+function renderAspirational() {
+  const card = document.getElementById("aspirational-card");
+  if (!card) return;
+  const ids = aspirationalCardIds();
+  if (ids.length === 0) {
+    card.style.display = "none";
+    return;
+  }
+  card.style.display = "flex";
+  const countEl = document.getElementById("aspirational-count");
+  const previewEl = document.getElementById("aspirational-preview");
+  if (countEl) countEl.textContent = ids.length;
+  if (previewEl) {
+    const s = getSentenceById(ids[0]);
+    previewEl.textContent = s ? (s.es || s.de || "—") : "—";
+  }
+}
+
+// ---- Master-Render -----------------------------------------------------
+function renderEngagement() {
+  renderWhyAnchor();
+  renderHeroButton();
+  renderStreakChain();
+  renderAspirational();
+}
+
+// ---- Wiring -----------------------------------------------------------
+// Defer via rAF, damit alle später definierten Funktionen (openSettingsPage,
+// setCarModeActive, startCarSession, exitCarSession, carEligibleSentences,
+// buildRatingFilter, applyFilter) zum Zeitpunkt des Wirings bereits existieren.
+function wireEngagement() {
+  // G1: Warum-Anker — Edit/Empty öffnen Settings-Page und fokussieren die Textarea.
+  function openWhyEditor() {
+    if (typeof openSettingsPage === "function") openSettingsPage();
+    // 80ms: Settings-Page muss erst im DOM sichtbar werden, sonst greift focus() ins Leere.
+    setTimeout(function () {
+      const ta = document.getElementById("why-text-input");
+      if (ta) { ta.value = state.whyText || ""; ta.focus(); ta.select(); }
+    }, 80);
+  }
+  const emptyEl = document.getElementById("why-anchor-empty");
+  const editBtnEl = document.getElementById("why-anchor-edit");
+  if (emptyEl) emptyEl.onclick = openWhyEditor;
+  if (editBtnEl) editBtnEl.onclick = openWhyEditor;
+
+  // Sicherstellen, dass die Settings-Sidebar-Link den Warum-Textarea ebenfalls
+  // sauber befüllt — gleicher Mechanismus über setTimeout.
+  const settingsLink = document.getElementById("side-settings-link");
+  if (settingsLink) {
+    const _origClick = settingsLink.onclick;
+    settingsLink.onclick = function (e) {
+      if (_origClick) _origClick.call(this, e);
+      setTimeout(function () {
+        const ta = document.getElementById("why-text-input");
+        if (ta) ta.value = state.whyText || "";
+      }, 60);
+    };
+  }
+
+  // Settings-Page: Save/Clear "Mein Warum"
+  const whyInput = document.getElementById("why-text-input");
+  const saveWhyBtn = document.getElementById("save-why-btn");
+  const clearWhyBtn = document.getElementById("clear-why-btn");
+  if (whyInput) whyInput.value = state.whyText || "";
+  if (saveWhyBtn) saveWhyBtn.onclick = function () {
+    if (!whyInput) return;
+    const v = whyInput.value.trim();
+    setWhyText(v);
+    showToast(v ? "Dein Warum ist gespeichert." : "Warum-Text gelöscht.");
+  };
+  if (clearWhyBtn) clearWhyBtn.onclick = function () {
+    if (!whyInput) return;
+    whyInput.value = "";
+    setWhyText("");
+    showToast("Warum-Text gelöscht.");
+  };
+
+  // D1: Hero-Listen-Button → 5-Min-Quick-Start.
+  const heroBtn = document.getElementById("hero-listen-btn");
+  if (heroBtn) heroBtn.onclick = function () { startQuickListenSession(); };
+
+  // E3: Aspirational-Card → 2-Sterne-Karten als Listen-Filter laden.
+  const aspBtn = document.getElementById("aspirational-card");
+  if (aspBtn) aspBtn.onclick = function () {
+    const ids = aspirationalCardIds();
+    if (!ids.length) return;
+    // Filter setzen: nur 2★, ins Listen-Mode springen.
+    state.activeRatings = new Set(["2"]);
+    if (typeof buildRatingFilter === "function") buildRatingFilter();
+    const lb = document.getElementById("listen-mode-btn");
+    if (lb && state.mode !== "listen") lb.click();
+    if (typeof applyFilter === "function") applyFilter();
+    const cardsEl = document.getElementById("cards");
+    if (cardsEl && cardsEl.scrollIntoView) cardsEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    showToast(ids.length + " Sätze auf 2★ gefiltert — leg los.", 3000);
+  };
+
+  // Initial-Render
+  try { renderEngagement(); } catch (e) { console.warn("[engagement] initial render failed", e); }
+}
+// rAF defer auf nächsten Frame — alle Top-Level-Defs sind dann bereits ausgewertet.
+if (typeof requestAnimationFrame === "function") {
+  requestAnimationFrame(function () { requestAnimationFrame(wireEngagement); });
+} else {
+  setTimeout(wireEngagement, 0);
 }
 
 // ===== Controls =====
@@ -2536,6 +2806,7 @@ function openSaetzePage() {
   document.body.classList.remove("scenes");
   document.body.classList.remove("scene-detail");
   document.body.classList.remove("scene-practice");
+  document.body.classList.remove("scene-import");
   document.body.classList.add("saetze");
   closeSidePanel();
   renderSaetzePage();
@@ -2878,6 +3149,7 @@ function openStatsPage() {
   document.body.classList.remove("scenes");
   document.body.classList.remove("scene-detail");
   document.body.classList.remove("scene-practice");
+  document.body.classList.remove("scene-import");
   document.body.classList.add("stats");
   closeSidePanel();
   renderStatsPage();
@@ -2915,6 +3187,7 @@ function openSettingsPage() {
   document.body.classList.remove("scenes");
   document.body.classList.remove("scene-detail");
   document.body.classList.remove("scene-practice");
+  document.body.classList.remove("scene-import");
   document.body.classList.add("settings");
   closeSidePanel();
   window.scrollTo({ top: 0, behavior: "instant" });
@@ -2968,6 +3241,7 @@ function openScenesPage() {
   document.body.classList.remove("settings");
   document.body.classList.remove("scene-detail");
   document.body.classList.remove("scene-practice");
+  document.body.classList.remove("scene-import");
   document.body.classList.add("scenes");
   closeSidePanel();
   if (scenesSortEl) scenesSortEl.value = state.scenesSort;
@@ -3179,10 +3453,17 @@ function renderSceneCard(sc) {
 }
 
 // ============================================================
-//   SZENEN-IMPORT-MODAL (Phase 2)
+//   SZENEN-IMPORT-PAGE (Phase 2, Refactor von Modal zu Page)
 // ============================================================
-const sceneImportDialog = document.getElementById("scene-import-dialog");
-const sceneImportCloseBtn = document.getElementById("scene-import-close");
+// Eigene Vollbild-Page (body.scene-import). Vorher war das ein <dialog>,
+// aber bei vielen Sätzen + Footer wurde der Submit-Button unten abgeschnitten
+// und die Sätze-Liste hatte nur winzigen internen Scroll. Page-Layout löst
+// beides: ganze Page scrollt mit Browser-Scrollbar, Submit-Knopf oben rechts
+// IMMER sichtbar.
+const sceneImportPageEl = document.getElementById("scene-import-page");
+const sceneImportBackBtn = document.getElementById("scene-import-back-btn");
+const sceneImportSubmitTopBtn = document.getElementById("scene-import-submit-top");
+const sceneImportSubmitTopLabel = document.getElementById("scene-import-submit-top-label");
 const sceneImportCancelBtn = document.getElementById("scene-import-cancel");
 const sceneImportSubmitBtn = document.getElementById("scene-import-submit");
 const sceneImportTitleEl = document.getElementById("scene-import-title");
@@ -3198,15 +3479,17 @@ const sceneImportCountHintEl = document.getElementById("scene-import-count-hint"
 const sceneImportAudioEl = document.getElementById("scene-import-audio");
 const sceneImportFlatEl = document.getElementById("scene-import-flat");
 
-// State des Modals — leben nur für die Modal-Session
+// State des Imports — lebt nur für die Page-Session
 const _sceneImport = {
   roles: [],         // ["self", "maria"]
   parsedRows: [],    // [{ role, de, es, status, error? }]
 };
 
-function openSceneImportDialog() {
-  if (!sceneImportDialog) return;
-  // Reset
+let _modeBeforeSceneImport = null;
+function openSceneImportPage() {
+  if (!sceneImportPageEl) return;
+  _modeBeforeSceneImport = document.body.classList.contains("scenes") ? "scenes" : "listen";
+  // Reset State
   _sceneImport.roles = ["self"];
   _sceneImport.parsedRows = [];
   if (sceneImportTitleEl) sceneImportTitleEl.value = "";
@@ -3218,15 +3501,48 @@ function openSceneImportDialog() {
   renderImportRoles();
   renderImportSentences();
   updateImportSubmitState();
-  sceneImportDialog.showModal();
+  // Page-Klassen swap
+  document.body.classList.remove("focus");
+  document.body.classList.remove("recall");
+  document.body.classList.remove("new-sentence");
+  document.body.classList.remove("saetze");
+  document.body.classList.remove("stats");
+  document.body.classList.remove("settings");
+  document.body.classList.remove("scenes");
+  document.body.classList.remove("scene-detail");
+  document.body.classList.remove("scene-practice");
+  document.body.classList.remove("scene-import");
+  document.body.classList.add("scene-import");
+  closeSidePanel();
+  window.scrollTo({ top: 0, behavior: "instant" });
 }
-function closeSceneImportDialog() {
-  if (sceneImportDialog && sceneImportDialog.open) sceneImportDialog.close();
+function closeSceneImportPage() {
+  document.body.classList.remove("scene-import");
+  if (_modeBeforeSceneImport === "scenes") {
+    document.body.classList.add("scenes");
+    renderScenesPage();
+  }
+  _modeBeforeSceneImport = null;
 }
-if (scenesImportCtaEl) scenesImportCtaEl.onclick = openSceneImportDialog;
-if (scenesImportCtaEmptyEl) scenesImportCtaEmptyEl.onclick = openSceneImportDialog;
-if (sceneImportCloseBtn) sceneImportCloseBtn.onclick = closeSceneImportDialog;
-if (sceneImportCancelBtn) sceneImportCancelBtn.onclick = closeSceneImportDialog;
+// Legacy-Alias damit alte JS-Pfade weiter funktionieren (siehe submit-Handler)
+function closeSceneImportDialog() { closeSceneImportPage(); }
+function openSceneImportDialog() { openSceneImportPage(); }
+
+if (scenesImportCtaEl) scenesImportCtaEl.onclick = openSceneImportPage;
+if (scenesImportCtaEmptyEl) scenesImportCtaEmptyEl.onclick = openSceneImportPage;
+if (sceneImportBackBtn) sceneImportBackBtn.onclick = function () {
+  // Wenn schon was getippt wurde: nachfragen
+  const dirty = (sceneImportTitleEl && sceneImportTitleEl.value.trim()) ||
+    (sceneImportTsvEl && sceneImportTsvEl.value.trim());
+  if (dirty && !confirm("Eingaben verwerfen und zurück?")) return;
+  closeSceneImportPage();
+};
+if (sceneImportCancelBtn) sceneImportCancelBtn.onclick = function () {
+  const dirty = (sceneImportTitleEl && sceneImportTitleEl.value.trim()) ||
+    (sceneImportTsvEl && sceneImportTsvEl.value.trim());
+  if (dirty && !confirm("Eingaben verwerfen und zurück?")) return;
+  closeSceneImportPage();
+};
 
 // ----- Rollen-Verwaltung -----
 function renderImportRoles() {
@@ -3514,13 +3830,28 @@ function updateImportSubmitState() {
   // Im flachen Modus brauchen wir keinen Title
   const titleOk = flat || title.length > 0;
   const ok = selected.length > 0 && titleOk;
-  sceneImportSubmitBtn.disabled = !ok;
-  sceneImportSubmitBtn.textContent = ok
+  const label = ok
     ? (flat ? "Sätze importieren (" + selected.length + ")" : "Szene anlegen (" + selected.length + " Sätze)")
     : "Szene anlegen";
+  // Bottom-Submit (Footer)
+  sceneImportSubmitBtn.disabled = !ok;
+  sceneImportSubmitBtn.textContent = label;
+  // Top-Submit im Header — kompakter Label aber gleiche Logik
+  if (sceneImportSubmitTopBtn) {
+    sceneImportSubmitTopBtn.disabled = !ok;
+    if (sceneImportSubmitTopLabel) {
+      sceneImportSubmitTopLabel.textContent = ok
+        ? (flat ? "Importieren (" + selected.length + ")" : "Anlegen (" + selected.length + ")")
+        : "Szene anlegen";
+    }
+  }
 }
 if (sceneImportTitleEl) sceneImportTitleEl.addEventListener("input", updateImportSubmitState);
 if (sceneImportFlatEl) sceneImportFlatEl.addEventListener("change", updateImportSubmitState);
+// Top-Submit klickt den Bottom-Submit durch, damit nur ein Handler existiert
+if (sceneImportSubmitTopBtn) sceneImportSubmitTopBtn.onclick = function () {
+  if (sceneImportSubmitBtn && !sceneImportSubmitBtn.disabled) sceneImportSubmitBtn.click();
+};
 
 // ----- Submit -----
 if (sceneImportSubmitBtn) sceneImportSubmitBtn.onclick = function () {
@@ -3602,13 +3933,15 @@ if (sceneImportSubmitBtn) sceneImportSubmitBtn.onclick = function () {
   }
 };
 
-// ESC schließt den Dialog (eigener Handler, weil <dialog> das schon macht,
-// aber wir wollen sauberen State-Reset)
-if (sceneImportDialog) {
-  sceneImportDialog.addEventListener("close", function () {
-    // No-op, state wird beim nächsten Open eh resettet
-  });
-}
+// ESC auf der Page → zurück zur Szenen-Liste (mit dirty-Check via Back-Btn)
+document.addEventListener("keydown", function (e) {
+  if (!document.body.classList.contains("scene-import")) return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    if (sceneImportBackBtn) sceneImportBackBtn.click();
+  }
+});
 
 // =====================================================================
 // SZENEN-DETAIL-PAGE (Phase 4)
@@ -4159,6 +4492,7 @@ function startScenePractice(sceneId) {
 function endScenePractice(advance) {
   state.scenePractice.active = false;
   document.body.classList.remove("scene-practice");
+  document.body.classList.remove("scene-import");
   // Audio stoppen
   try { if (audioEl) { audioEl.pause(); audioEl.src = ""; } } catch (e) {}
   if (advance) renderSceneDetailPage();
@@ -4447,6 +4781,7 @@ function _closeAllPageOverlays() {
   document.body.classList.remove("scenes");
   document.body.classList.remove("scene-detail");
   document.body.classList.remove("scene-practice");
+  document.body.classList.remove("scene-import");
   document.body.classList.remove("new-sentence");
 }
 
@@ -4633,6 +4968,8 @@ async function pullCloudData() {
       if (s.us_sort) state.usSort = s.us_sort;
       if (s.intro_counts && typeof s.intro_counts === "object") state.introCounts = s.intro_counts;
       if (s.card_state && typeof s.card_state === "object") state.cardState = s.card_state;
+      // Engagement-Layer: Dein Warum (G1) — cloud autoritativ, lokal als Cache.
+      if (typeof s.why_text === "string") state.whyText = s.why_text;
       if (s.stats && typeof s.stats === "object") {
         // Merge: cloud-stats sind autoritativ für vergangene Tage, lokale
         // Inkremente von heute bleiben aber (in der Zwischenzeit aufgelaufen)
@@ -4685,6 +5022,7 @@ async function pullCloudData() {
       localStorage.setItem("hl_intro_counts", JSON.stringify(state.introCounts));
       localStorage.setItem("hl_card_state", JSON.stringify(state.cardState));
       localStorage.setItem("hl_stats", JSON.stringify(state.stats));
+      localStorage.setItem("hl_why_text", state.whyText);
     }
     // User sentences
     const { data: sentences, error: sErr } = await sb
@@ -4759,6 +5097,8 @@ async function pushProfile() {
         intro_counts: state.introCounts,
         card_state: state.cardState,
         stats: state.stats,
+        // Engagement-Layer: Dein Warum (G1)
+        why_text: state.whyText,
         // Set on first login post-Phase-A, prevents the migration block in
         // pullCloudData from re-running on subsequent logins.
         srs_phase_a_migrated: true,
