@@ -4152,15 +4152,26 @@ body.intro .intro-card-view { display: block; }
   flex-shrink: 0;
 }
 
-/* ---- Hide on non-dashboard views ---- */
-body.car .why-anchor,
-body.car .hero-listen-btn,
-body.car .streak-chain,
-body.car .aspirational-card,
+/* ---- Sichtbarkeits-Regel: nur Dashboard (Listen-Modus) + Stats-Page ----
+   In jedem Übungs- oder Sekundär-View werden alle 4 Engagement-Elemente
+   ausgeblendet — bei Übungen lenken sie ab, in Edit-Pages haben sie keinen
+   Platz. Auf der Stats-Page sind sie EXPLIZIT sichtbar (siehe unten). */
+body.recall .why-anchor,
+body.recall .hero-listen-btn,
+body.recall .streak-chain,
+body.recall .aspirational-card,
 body.focus .why-anchor,
 body.focus .hero-listen-btn,
 body.focus .streak-chain,
 body.focus .aspirational-card,
+body.car .why-anchor,
+body.car .hero-listen-btn,
+body.car .streak-chain,
+body.car .aspirational-card,
+body.intro .why-anchor,
+body.intro .hero-listen-btn,
+body.intro .streak-chain,
+body.intro .aspirational-card,
 body.new-sentence .why-anchor,
 body.new-sentence .hero-listen-btn,
 body.new-sentence .streak-chain,
@@ -4169,10 +4180,6 @@ body.saetze .why-anchor,
 body.saetze .hero-listen-btn,
 body.saetze .streak-chain,
 body.saetze .aspirational-card,
-body.stats .why-anchor,
-body.stats .hero-listen-btn,
-body.stats .streak-chain,
-body.stats .aspirational-card,
 body.settings .why-anchor,
 body.settings .hero-listen-btn,
 body.settings .streak-chain,
@@ -4189,11 +4196,6 @@ body.scene-practice .why-anchor,
 body.scene-practice .hero-listen-btn,
 body.scene-practice .streak-chain,
 body.scene-practice .aspirational-card { display: none !important; }
-
-/* Im Recall-Modus blenden wir nur den großen Hero-Button + Aspirational aus
-   (beide sind Listen-orientiert), Warum-Anker und Streak-Kette bleiben sichtbar. */
-body.recall .hero-listen-btn,
-body.recall .aspirational-card { display: none !important; }
 
 /* Mobile: kompakter Hero, kleinerer Chain */
 @media (max-width: 640px) {
