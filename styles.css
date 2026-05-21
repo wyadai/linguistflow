@@ -2761,6 +2761,32 @@ body.saetze .saetze-page { display: block; }
   opacity: 0.85;
 }
 
+/* Inline-Edit-Textarea: gleiche Typografie wie .saetze-card-es, aber als
+   editierbares Feld. Auto-grows via rows + min-height, surface-low background
+   damit der Edit-State visuell vom statischen Read-State unterscheidbar ist. */
+.saetze-edit-textarea {
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--primary);
+  line-height: 1.4;
+  background: var(--surface-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+  min-height: 48px;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.saetze-edit-textarea:focus {
+  border-color: var(--primary);
+  background: var(--surface-lowest);
+}
+
 .saetze-card-actions {
   display: inline-flex;
   gap: 4px;
@@ -2912,6 +2938,7 @@ body.saetze .saetze-page { display: block; }
   .saetze-card-es { font-size: 16px; }
   .saetze-card-de { font-size: 13px; }
   .saetze-action-btn { width: 32px; height: 32px; }
+  .saetze-edit-textarea { font-size: 16px; }
 }
 @media (max-width: 480px) {
   .saetze-back-label { display: none; }

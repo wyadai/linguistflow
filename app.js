@@ -61,6 +61,9 @@ const state = {
   usSort: localStorage.getItem("hl_us_sort") || "newest",
   // Filter for the Meine-Sätze page: "translated" | "pending" | "archived"
   saetzeFilter: "translated",
+  // ID of the sentence currently being edited on the Meine-Sätze page (ES only).
+  // Runtime-only — not persisted. Null when nothing is being edited.
+  saetzeEditingId: null,
   mainSort: localStorage.getItem("hl_main_sort") || "oldest",
   // Engagement-Layer (Mai 2026): "Dein Warum" — persönlicher Motivations-Anker,
   // dezent oben in der App sichtbar. Synced via profiles.settings.why_text.
@@ -2444,10 +2447,15 @@ searchInput.oninput = function (e) {
     console.warn("[search] Ignoring email-like autofill value:", v);
     e.target.value = "";
     state.search = "";
+    applyFilter();
+    if (typeof renderSaetzePage === "function") renderSaetzePage();
     return;
   }
   state.search = v;
   applyFilter();
+  // The Meine-Sätze page also honors state.search now — re-render it so the
+  // topbar query filters that list too. No-op if the page DOM isn't there.
+  if (typeof renderSaetzePage === "function") renderSaetzePage();
 };
 speedBtn.onclick = function () {
   const i = state.speeds.indexOf(state.speed);
@@ -2533,7 +2541,17 @@ function renderSaetzePage() {
   saetzeListEl.innerHTML = "";
 
   const filter = state.saetzeFilter || "translated";
-  const list = getSaetzeForFilter(filter);
+  const rawList = getSaetzeForFilter(filter);
+
+  // Honor the topbar search input on this page too — same DE+ES substring match
+  // as applyFilter() uses for the main card list. Empty query → no filtering.
+  const q = (state.search || "").trim().toLowerCase();
+  const list = q
+    ? rawList.filter(function (s) {
+        return (s.de && s.de.toLowerCase().includes(q))
+          || (s.es && s.es.toLowerCase().includes(q));
+      })
+    : rawList;
 
   // Translate-all banner: nur im Pending-Filter UND wenn pending-Sätze da sind.
   const banner = document.getElementById("saetze-translate-banner");
@@ -2566,7 +2584,16 @@ function renderSaetzePage() {
 
   if (list.length === 0) {
     if (saetzeEmptyEl) saetzeEmptyEl.style.display = "block";
-    if (saetzeEmptyTextEl) saetzeEmptyTextEl.textContent = SAETZE_EMPTY_COPY[filter] || SAETZE_EMPTY_COPY.translated;
+    if (saetzeEmptyTextEl) {
+      // If the list is empty specifically because of an active search query,
+      // say so — otherwise the user sees "Keine übersetzten Sätze." even though
+      // they have plenty of sentences that just don't match the query.
+      if (q && rawList.length > 0) {
+        saetzeEmptyTextEl.textContent = "Keine Treffer für „" + state.search.trim() + "“.";
+      } else {
+        saetzeEmptyTextEl.textContent = SAETZE_EMPTY_COPY[filter] || SAETZE_EMPTY_COPY.translated;
+      }
+    }
     if (saetzeFooterInfoEl) saetzeFooterInfoEl.textContent = "";
     return;
   }
@@ -2637,15 +2664,37 @@ function renderSaetzeCard(s) {
 
   main.appendChild(meta);
 
+  const isEditing = state.saetzeEditingId === s.id;
+
   // ES on top (primary content) — falls back to a hint if pending.
-  const esEl = document.createElement("p");
-  esEl.className = "saetze-card-es";
-  if (s.es) {
-    esEl.textContent = s.es;
+  // In edit mode, replace the <p> with a textarea pre-filled with the current ES.
+  if (isEditing) {
+    const ta = document.createElement("textarea");
+    ta.className = "saetze-edit-textarea";
+    ta.value = s.es || "";
+    ta.rows = 2;
+    ta.setAttribute("aria-label", "Spanischer Text bearbeiten");
+    // Keyboard shortcuts: Cmd/Ctrl+Enter = save, Esc = cancel
+    ta.addEventListener("keydown", function (e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        saveEditSaetze(s.id);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelEditSaetze();
+      }
+    });
+    main.appendChild(ta);
   } else {
-    esEl.textContent = "— wird übersetzt —";
+    const esEl = document.createElement("p");
+    esEl.className = "saetze-card-es";
+    if (s.es) {
+      esEl.textContent = s.es;
+    } else {
+      esEl.textContent = "— wird übersetzt —";
+    }
+    main.appendChild(esEl);
   }
-  main.appendChild(esEl);
 
   const deEl = document.createElement("p");
   deEl.className = "saetze-card-de";
@@ -2657,6 +2706,28 @@ function renderSaetzeCard(s) {
   // === Actions column ===
   const actions = document.createElement("div");
   actions.className = "saetze-card-actions";
+
+  if (isEditing) {
+    // Reduced action set while editing — Speichern / Abbrechen.
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "saetze-action-btn accent";
+    saveBtn.title = "Speichern (Cmd/Ctrl + Enter)";
+    saveBtn.setAttribute("aria-label", "Speichern");
+    saveBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">check</span>';
+    saveBtn.onclick = function () { saveEditSaetze(s.id); };
+    actions.appendChild(saveBtn);
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "saetze-action-btn";
+    cancelBtn.title = "Abbrechen (Esc)";
+    cancelBtn.setAttribute("aria-label", "Abbrechen");
+    cancelBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">close</span>';
+    cancelBtn.onclick = function () { cancelEditSaetze(); };
+    actions.appendChild(cancelBtn);
+
+    card.appendChild(actions);
+    return card;
+  }
 
   if (s.archived) {
     // Restore + permanent delete
@@ -2685,7 +2756,15 @@ function renderSaetzeCard(s) {
     delBtn.onclick = function () { archiveOrDelete(s.id); };
     actions.appendChild(delBtn);
   } else {
-    // Translated (non-archived): play / regen-or-gen audio / archive
+    // Translated (non-archived): edit / play / regen-or-gen audio / archive
+    const editBtn = document.createElement("button");
+    editBtn.className = "saetze-action-btn";
+    editBtn.title = "Spanisch bearbeiten";
+    editBtn.setAttribute("aria-label", "Spanisch bearbeiten");
+    editBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">edit</span>';
+    editBtn.onclick = function () { startEditSaetze(s.id); };
+    actions.appendChild(editBtn);
+
     if (hasAudio(s)) {
       const playBtn = document.createElement("button");
       playBtn.className = "saetze-action-btn";
@@ -2772,6 +2851,82 @@ async function regenerateAudioForSaetze(id, btn) {
   }
 }
 
+// ===== Edit ES text on a Meine-Sätze card =====
+// One-card-at-a-time editing via state.saetzeEditingId. The DE side and
+// categories stay read-only — per user decision (Mai 2026), the main use case
+// is correcting the Spanish phrasing when the user's wife suggests a Guatemala-
+// specific variant. If ES actually changes AND an audio exists, we prompt for
+// regeneration (the old audio still says the old text).
+function startEditSaetze(id) {
+  state.saetzeEditingId = id;
+  renderSaetzePage();
+  // Focus textarea and put caret at the end so the user can start typing
+  // immediately. Wrapped in rAF so the DOM is mounted first.
+  requestAnimationFrame(function () {
+    const ta = document.querySelector('.saetze-card[data-id="' + id + '"] .saetze-edit-textarea');
+    if (ta) {
+      ta.focus();
+      const len = ta.value.length;
+      try { ta.setSelectionRange(len, len); } catch (e) {}
+    }
+  });
+}
+
+function cancelEditSaetze() {
+  state.saetzeEditingId = null;
+  renderSaetzePage();
+}
+
+async function saveEditSaetze(id) {
+  const card = document.querySelector('.saetze-card[data-id="' + id + '"]');
+  if (!card) return;
+  const ta = card.querySelector(".saetze-edit-textarea");
+  if (!ta) return;
+  const newEs = ta.value.trim();
+  if (!newEs) {
+    showToast("ES darf nicht leer sein.");
+    return;
+  }
+  const s = state.userSentences.find(function (x) { return x.id === id; });
+  if (!s) return;
+  const oldEs = s.es || "";
+  const changed = newEs !== oldEs;
+
+  s.es = newEs;
+  saveJSON("hl_user_sentences", state.userSentences);  // triggers queuePushSentences()
+  state.saetzeEditingId = null;
+  renderSaetzePage();
+  renderCards();  // main list also shows ES, keep it in sync
+  showToast(changed ? "Gespeichert." : "Keine Änderung.");
+
+  // Audio regen prompt: only when ES actually changed AND an audio already exists.
+  // No audio yet → user will hit the regular "Audio" button on their own.
+  if (changed && hasAudio(s)) {
+    const yes = confirm(
+      "ES-Text wurde geändert.\n\n" +
+      "Alt: " + oldEs.slice(0, 120) + "\n" +
+      "Neu: " + newEs.slice(0, 120) + "\n\n" +
+      "Audio jetzt neu generieren?"
+    );
+    if (yes) {
+      showToast("Audio wird generiert …", 60000);
+      try {
+        const ok = await generateAudioFor(id);
+        if (ok) {
+          renderSaetzePage();
+          renderCards();
+          if (typeof updateGenerateAllAudioBtn === "function") updateGenerateAllAudioBtn();
+          showToast("Audio neu generiert.");
+        } else {
+          showToast("Audio konnte nicht generiert werden.", 4000);
+        }
+      } catch (e) {
+        showToast("Audio-Fehler: " + e.message, 4000);
+      }
+    }
+  }
+}
+
 // Filter-tab + sort handlers
 if (saetzeFilterEl) {
   saetzeFilterEl.addEventListener("click", function (e) {
@@ -2780,6 +2935,7 @@ if (saetzeFilterEl) {
     const f = tab.getAttribute("data-saetze-filter");
     if (!f) return;
     state.saetzeFilter = f;
+    state.saetzeEditingId = null;  // discard pending edit when switching filter
     renderSaetzePage();
   });
 }
@@ -2788,6 +2944,7 @@ if (saetzeSortEl) {
     state.usSort = saetzeSortEl.value;
     localStorage.setItem("hl_us_sort", state.usSort);
     queuePushProfile();
+    state.saetzeEditingId = null;  // discard pending edit when re-sorting
     renderSaetzePage();
   };
 }
@@ -2813,6 +2970,7 @@ function openSaetzePage() {
   window.scrollTo({ top: 0, behavior: "instant" });
 }
 function closeSaetzePage() {
+  state.saetzeEditingId = null;  // exit edit mode when leaving the page
   document.body.classList.remove("saetze");
   if (_modeBeforeSaetze === "focus" && typeof setFocusModeActive === "function") {
     setFocusModeActive();
