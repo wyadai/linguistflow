@@ -788,6 +788,7 @@
           <div class="saetze-filter" id="saetze-filter">
             <button class="saetze-filter-tab active" data-saetze-filter="translated">Übersetzt</button>
             <button class="saetze-filter-tab" data-saetze-filter="pending">Ausstehend</button>
+            <button class="saetze-filter-tab" data-saetze-filter="no_audio">Ohne Audio</button>
             <button class="saetze-filter-tab" data-saetze-filter="archived">Archiv</button>
           </div>
           <div class="saetze-sort-wrap">
@@ -812,6 +813,51 @@
           <button class="saetze-translate-btn" id="saetze-translate-btn">
             <span class="material-symbols-outlined" style="font-size:16px;">auto_awesome</span>
             <span id="saetze-translate-btn-label">Alle übersetzen</span>
+          </button>
+        </div>
+
+        <!-- Copy-Paste-Prompt-Workflow — sichtbar nur im Pending-Filter.
+             Alternative zum direkten API-Call, falls Anthropic-Key nicht gesetzt
+             ist oder man die Antwort in einem normalen Claude-Chat haben will. -->
+        <details class="saetze-manual-block" id="saetze-manual-block" style="display:none;">
+          <summary class="saetze-manual-summary">
+            <span class="material-symbols-outlined" style="font-size:18px;">content_copy</span>
+            Manuell über Claude-Chat übersetzen
+          </summary>
+          <div class="saetze-manual-body">
+            <ol class="saetze-manual-steps">
+              <li>„Prompt kopieren" klicken</li>
+              <li>Im Claude-Chat (oder claude.ai) einfügen, Antwort kopieren</li>
+              <li>Hier unten einfügen, „Anwenden" klicken</li>
+            </ol>
+            <div class="saetze-manual-row">
+              <button class="side-btn" id="saetze-copy-prompt-btn">
+                <span class="material-symbols-outlined" style="font-size:16px;">content_copy</span>
+                Prompt kopieren
+              </button>
+            </div>
+            <textarea id="saetze-paste-translations" class="saetze-manual-textarea" placeholder="Antwort von Claude hier einfügen…" rows="5"></textarea>
+            <div class="saetze-manual-row">
+              <button class="side-btn primary" id="saetze-apply-translations-btn">
+                <span class="material-symbols-outlined" style="font-size:16px;">check</span>
+                Anwenden
+              </button>
+            </div>
+          </div>
+        </details>
+
+        <!-- Bulk-Audio-Banner — sichtbar nur im Ohne-Audio-Filter wenn Kandidaten da sind -->
+        <div class="saetze-translate-banner saetze-audio-banner" id="saetze-audio-banner" style="display:none;">
+          <div class="saetze-translate-banner-text">
+            <span class="material-symbols-outlined" style="font-size:22px;">volume_up</span>
+            <div>
+              <div class="saetze-translate-banner-title">Audios generieren</div>
+              <div class="saetze-translate-banner-sub" id="saetze-audio-banner-sub">ElevenLabs erzeugt Audio für alle Sätze, die noch keins haben.</div>
+            </div>
+          </div>
+          <button class="saetze-translate-btn" id="saetze-audio-btn">
+            <span class="material-symbols-outlined" style="font-size:16px;">auto_awesome</span>
+            <span id="saetze-audio-btn-label">Alle Audios generieren</span>
           </button>
         </div>
 

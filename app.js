@@ -2524,6 +2524,12 @@ function getSaetzeForFilter(filter) {
   if (filter === "pending") {
     return state.userSentences.filter(function (s) { return !s.archived && s.pending; });
   }
+  if (filter === "no_audio") {
+    // Übersetzt (also ES vorhanden, nicht pending, nicht archiviert) und KEIN Audio.
+    return state.userSentences.filter(function (s) {
+      return !s.archived && !s.pending && s.es && !hasAudio(s);
+    });
+  }
   // "translated" (default): non-archived and non-pending (Übersetzung vorhanden).
   return state.userSentences.filter(function (s) { return !s.archived && !s.pending; });
 }
@@ -2532,6 +2538,7 @@ function getSaetzeForFilter(filter) {
 const SAETZE_EMPTY_COPY = {
   translated: "Noch keine übersetzten Sätze. Füge welche über „Neuer Satz“ hinzu.",
   pending: "Keine ausstehenden Übersetzungen. Alles ist übersetzt.",
+  no_audio: "Alle übersetzten Sätze haben bereits Audio. 🎉",
   archived: "Archiv ist leer.",
 };
 
@@ -2558,8 +2565,8 @@ function renderSaetzePage() {
   const bannerBtn = document.getElementById("saetze-translate-btn");
   const bannerLabel = document.getElementById("saetze-translate-btn-label");
   const bannerSub = document.getElementById("saetze-translate-banner-sub");
+  const pendingCount = state.userSentences.filter(function (s) { return !s.archived && s.pending; }).length;
   if (banner) {
-    const pendingCount = state.userSentences.filter(function (s) { return !s.archived && s.pending; }).length;
     if (filter === "pending" && pendingCount > 0) {
       banner.style.display = "flex";
       if (bannerLabel) bannerLabel.textContent = "Alle übersetzen (" + pendingCount + ")";
@@ -2570,6 +2577,35 @@ function renderSaetzePage() {
       if (bannerBtn) bannerBtn.disabled = !state.apiKey;
     } else {
       banner.style.display = "none";
+    }
+  }
+
+  // Manual-Copy-Paste-Block: nur im Pending-Filter UND wenn pending-Sätze da sind.
+  // Alternative zum API-Call (auch ohne Anthropic-Key nutzbar).
+  const manualBlock = document.getElementById("saetze-manual-block");
+  if (manualBlock) {
+    manualBlock.style.display = (filter === "pending" && pendingCount > 0) ? "block" : "none";
+  }
+
+  // Audio-Bulk-Banner: nur im Ohne-Audio-Filter UND wenn Kandidaten da sind.
+  const audioBanner = document.getElementById("saetze-audio-banner");
+  const audioBtn = document.getElementById("saetze-audio-btn");
+  const audioBtnLabel = document.getElementById("saetze-audio-btn-label");
+  const audioBannerSub = document.getElementById("saetze-audio-banner-sub");
+  if (audioBanner) {
+    const noAudioCount = state.userSentences.filter(function (s) {
+      return !s.archived && !s.pending && s.es && !hasAudio(s);
+    }).length;
+    if (filter === "no_audio" && noAudioCount > 0) {
+      audioBanner.style.display = "flex";
+      if (audioBtnLabel) audioBtnLabel.textContent = "Alle Audios generieren (" + noAudioCount + ")";
+      if (audioBannerSub) {
+        if (state.elKey) audioBannerSub.textContent = "ElevenLabs erzeugt Audio für alle " + noAudioCount + " Sätze nacheinander.";
+        else audioBannerSub.textContent = "ElevenLabs API Key fehlt — setze ihn in Einstellungen.";
+      }
+      if (audioBtn) audioBtn.disabled = !state.elKey;
+    } else {
+      audioBanner.style.display = "none";
     }
   }
 
@@ -2989,6 +3025,57 @@ if (saetzeTranslateBtn) {
     // Reuse die existierende Translate-Pipeline aus der alten Sidebar-Sektion
     if (typeof translateViaAPI === "function") translateViaAPI();
     else if (translateApiBtn) translateApiBtn.click();
+  };
+}
+
+// Bulk-Audio-Banner-Button auf der Saetze-Page (Ohne-Audio-Filter)
+const saetzeAudioBtn = document.getElementById("saetze-audio-btn");
+if (saetzeAudioBtn) {
+  saetzeAudioBtn.onclick = function () {
+    // Reuse die existierende Generate-All-Pipeline
+    if (typeof generateAllPendingAudios === "function") generateAllPendingAudios();
+    else if (generateAllAudioBtn) generateAllAudioBtn.click();
+  };
+}
+
+// Copy-Paste-Manual-Block auf der Saetze-Page (Pending-Filter):
+// Prompt kopieren + Antwort einfügen + Anwenden. Reuse von
+// buildTranslationPrompt() und parseAndApplyTranslations() aus dem alten
+// Sidebar-Manual-Block.
+const saetzeCopyPromptBtn = document.getElementById("saetze-copy-prompt-btn");
+const saetzePasteTranslationsEl = document.getElementById("saetze-paste-translations");
+const saetzeApplyTranslationsBtn = document.getElementById("saetze-apply-translations-btn");
+if (saetzeCopyPromptBtn) {
+  saetzeCopyPromptBtn.onclick = function () {
+    const text = buildTranslationPrompt();
+    if (!text) { showToast("Keine ausstehenden Übersetzungen."); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        const n = pendingSentences().length;
+        showToast(n + " Sätze in Zwischenablage.");
+      }).catch(function () {
+        if (saetzePasteTranslationsEl) {
+          saetzePasteTranslationsEl.value = text;
+          saetzePasteTranslationsEl.select();
+        }
+        showToast("Bitte manuell kopieren (Ctrl+C).", 4000);
+      });
+    } else {
+      if (saetzePasteTranslationsEl) {
+        saetzePasteTranslationsEl.value = text;
+        saetzePasteTranslationsEl.select();
+      }
+      showToast("Bitte manuell kopieren (Ctrl+C).", 4000);
+    }
+  };
+}
+if (saetzeApplyTranslationsBtn) {
+  saetzeApplyTranslationsBtn.onclick = function () {
+    if (!saetzePasteTranslationsEl) return;
+    const text = saetzePasteTranslationsEl.value;
+    if (!text.trim()) { showToast("Nichts zum Anwenden."); return; }
+    parseAndApplyTranslations(text);
+    saetzePasteTranslationsEl.value = "";
   };
 }
 
