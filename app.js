@@ -161,6 +161,38 @@ function hasAudio(s) {
   return !!audioSrcFor(s);
 }
 
+// =====================================================================
+// Pre-load helpers (Android-MediaSession-Flicker-Fix)
+// =====================================================================
+// Wenn wir den nächsten Satz schon in den Cache (Service Worker / Browser-
+// Cache) holen, ist der src-Wechsel zwischen Sätzen praktisch instant. Das
+// verkürzt die Lücke, in der Android die Media-Notification ausblenden
+// könnte. Fire-and-forget: Fehler werden geschluckt.
+function _preloadAudioUrl(url) {
+  if (!url) return;
+  // Blob-URLs (IDB-Cache) sind eh schon im Speicher; data:/blob: skippen.
+  if (url.indexOf("blob:") === 0 || url.indexOf("data:") === 0) return;
+  try {
+    fetch(url, { cache: "default", credentials: "omit" }).catch(function () {});
+  } catch (e) { /* ignore */ }
+}
+function preloadNextSentenceAudio() {
+  if (!state || !Array.isArray(state.filteredIds) || state.filteredIds.length < 2) return;
+  const nextIdx = (state.currentIdx + 1) % state.filteredIds.length;
+  const nextId = state.filteredIds[nextIdx];
+  const nextS = (typeof getSentenceById === "function") ? getSentenceById(nextId) : null;
+  if (!nextS) return;
+  _preloadAudioUrl(audioSrcFor(nextS));
+}
+function preloadNextCarAudio() {
+  if (typeof car === "undefined" || !car || !Array.isArray(car.queue) || car.queue.length < 2) return;
+  const nextIdx = (car.idx + 1) % car.queue.length;
+  const nextId = car.queue[nextIdx];
+  const nextS = (typeof getSentenceById === "function") ? getSentenceById(nextId) : null;
+  if (!nextS) return;
+  _preloadAudioUrl(audioSrcFor(nextS));
+}
+
 function loadJSON(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || "null") || fallback; }
   catch (e) { return fallback; }
@@ -625,6 +657,134 @@ async function generateAllPendingAudios() {
   showToast(ok + " Audio(s) generiert" + (fail ? ", " + fail + " fehlgeschlagen" : "") + ".");
 }
 generateAllAudioBtn.onclick = generateAllPendingAudios;
+
+// =====================================================================
+// Offline-Vorbereitung — Audio-Pre-Fetch in den Service-Worker-Cache
+// =====================================================================
+// Iteriert über alle nicht-archivierten Sätze mit Audio, fetcht jeden
+// einmal — der Service Worker intercepted und cached automatisch:
+//   - Originale (es_guate_NN.mp3): cache-first
+//   - Storage-Audios (supabase.co/audios/*): stale-while-revalidate
+// Blob:- und data:-URLs werden übersprungen, weil die schon via IDB
+// offline funktionieren und auch nicht SW-cachebar wären.
+//
+// Idempotent: bereits gecachte URLs werden via caches.match() erkannt
+// und übersprungen → mehrmaliges Drücken kostet kein Netzwerk.
+//
+// Sichtbarkeit der Cache-Befüllung: countCachedAudios() zählt vor/nach
+// dem Run, damit der User sieht, dass es was getan hat (Engagement-
+// Hilfsmittel — sonst fühlt sich der Klick wie ein No-Op an).
+
+const prefetchAudiosBtn = document.getElementById("prefetch-audios-btn");
+const prefetchAudiosText = document.getElementById("prefetch-audios-text");
+const prefetchProgressEl = document.getElementById("prefetch-progress");
+const prefetchProgressFillEl = document.getElementById("prefetch-progress-fill");
+const prefetchProgressTextEl = document.getElementById("prefetch-progress-text");
+const offlineCacheStatusEl = document.getElementById("offline-cache-status");
+
+function getPrefetchCandidates() {
+  return allSentences().filter(function (s) {
+    if (s.archived) return false;
+    const src = audioSrcFor(s);
+    if (!src) return false;
+    if (src.indexOf("blob:") === 0 || src.indexOf("data:") === 0) return false;
+    return true;
+  });
+}
+
+async function countCachedAudios() {
+  if (!("caches" in window)) return { cached: 0, total: 0 };
+  const candidates = getPrefetchCandidates();
+  let cached = 0;
+  for (let i = 0; i < candidates.length; i++) {
+    const src = audioSrcFor(candidates[i]);
+    if (!src) continue;
+    try {
+      const match = await caches.match(src);
+      if (match) cached++;
+    } catch (e) { /* ignore */ }
+  }
+  return { cached: cached, total: candidates.length };
+}
+
+async function updateOfflineCacheStatus() {
+  if (!offlineCacheStatusEl || !prefetchAudiosBtn || !prefetchAudiosText) return;
+  if (!("caches" in window)) {
+    offlineCacheStatusEl.textContent = "nicht unterstützt";
+    prefetchAudiosBtn.disabled = true;
+    prefetchAudiosText.textContent = "Cache nicht verfügbar";
+    return;
+  }
+  offlineCacheStatusEl.textContent = "wird gezählt ...";
+  prefetchAudiosBtn.disabled = true;
+  const { cached, total } = await countCachedAudios();
+  offlineCacheStatusEl.textContent = cached + " / " + total + " offline";
+  const missing = total - cached;
+  if (total === 0) {
+    prefetchAudiosText.textContent = "Keine Audios vorhanden";
+    prefetchAudiosBtn.disabled = true;
+  } else if (missing === 0) {
+    prefetchAudiosText.textContent = "Alles offline verfügbar";
+    prefetchAudiosBtn.disabled = true;
+  } else {
+    prefetchAudiosText.textContent = missing + " Audio(s) für offline laden";
+    prefetchAudiosBtn.disabled = false;
+  }
+}
+
+async function prefetchAllAudios() {
+  if (!prefetchAudiosBtn) return;
+  const candidates = getPrefetchCandidates();
+  if (candidates.length === 0) {
+    showToast("Keine Audios zum Vorbereiten.");
+    return;
+  }
+  prefetchAudiosBtn.disabled = true;
+  if (prefetchAudiosText) prefetchAudiosText.textContent = "Lädt ...";
+  if (prefetchProgressEl) prefetchProgressEl.style.display = "block";
+  let done = 0;
+  let failed = 0;
+  let newlyCached = 0;
+  for (let i = 0; i < candidates.length; i++) {
+    const src = audioSrcFor(candidates[i]);
+    if (src) {
+      try {
+        const already = await caches.match(src);
+        if (!already) {
+          const resp = await fetch(src, { cache: "default", credentials: "omit" });
+          if (!resp || !resp.ok) {
+            failed++;
+          } else {
+            newlyCached++;
+          }
+        }
+      } catch (e) {
+        failed++;
+      }
+    }
+    done++;
+    const pct = Math.round((done / candidates.length) * 100);
+    if (prefetchProgressFillEl) prefetchProgressFillEl.style.width = pct + "%";
+    if (prefetchProgressTextEl) {
+      prefetchProgressTextEl.textContent = done + " / " + candidates.length
+        + (failed ? "  (" + failed + " Fehler)" : "");
+    }
+  }
+  await updateOfflineCacheStatus();
+  setTimeout(function () {
+    if (prefetchProgressEl) prefetchProgressEl.style.display = "none";
+    if (prefetchProgressFillEl) prefetchProgressFillEl.style.width = "0%";
+  }, 2500);
+  showToast(
+    newlyCached + " neu gecacht"
+    + (failed ? ", " + failed + " fehlgeschlagen" : "")
+    + ". Insgesamt " + (done - failed) + " / " + candidates.length + " offline."
+  , failed ? 4500 : 3000);
+}
+
+if (prefetchAudiosBtn) {
+  prefetchAudiosBtn.onclick = prefetchAllAudios;
+}
 
 function updateGenerateAllAudioBtn() {
   const candidates = state.userSentences.filter(function (s) {
@@ -2027,6 +2187,14 @@ function play() {
     else showToast("Kein Audio für diesen Satz.");
     return;
   }
+  // Android-MediaSession-Flicker-Fix: playbackState VOR dem src-Wechsel auf
+  // "playing" setzen, sonst sieht Android das audioEl kurz als pausiert/leer
+  // und schließt die Status-Bar-Notification, die kurz danach durch den
+  // nächsten play()-Call neu aufgeht. Das Ergebnis ist Flackern zwischen
+  // Uhr und Player-Chip in der Status-Bar.
+  if ("mediaSession" in navigator) {
+    try { navigator.mediaSession.playbackState = "playing"; } catch (e) {}
+  }
   audioEl.src = src;
   audioEl.playbackRate = state.speed;
   audioEl.play().then(function () {
@@ -2038,6 +2206,10 @@ function play() {
     // current sentence and reacts to media-key presses.
     if (typeof updateMediaSessionMetadata === "function") updateMediaSessionMetadata(s);
     incrementStat("plays");
+    // Den nächsten Satz schon mal in den Cache holen, damit der src-Wechsel
+    // beim ended-Event quasi instant ist (verkürzt die Lücke, in der Android
+    // den Player ausblenden könnte).
+    if (typeof preloadNextSentenceAudio === "function") preloadNextSentenceAudio();
   }).catch(function (err) { console.error("Play failed", err); });
 }
 function pause() {
@@ -2071,6 +2243,15 @@ audioEl.addEventListener("ended", function () {
   // Saetze-Page preview: ignore main-player auto-advance.
   if (state._saetzePreviewActive) { state._saetzePreviewActive = false; return; }
   state.repeatCount++;
+  // Wenn gleich der nächste Satz folgt (Repeat oder Autoplay): MediaSession
+  // synchron auf "playing" halten, damit Android die Notification während
+  // des src-Wechsels nicht für den Bruchteil einer Sekunde abräumt.
+  const willContinue =
+    state.repeatCount < state.repeat ||
+    (state.mode !== "recall" && state.autoPlay);
+  if (willContinue && "mediaSession" in navigator) {
+    try { navigator.mediaSession.playbackState = "playing"; } catch (e) {}
+  }
   if (state.repeatCount < state.repeat) { play(); }
   else {
     state.repeatCount = 0;
@@ -2078,6 +2259,12 @@ audioEl.addEventListener("ended", function () {
       state.isPlaying = false;
       playIcon.style.display = "block";
       pauseIcon.style.display = "none";
+      // Session läuft hier wirklich aus → MediaSession sauber auf "paused"
+      // setzen (Notification bleibt sichtbar mit Play-Button), nicht
+      // implizit auf "none" fallen lassen.
+      if ("mediaSession" in navigator) {
+        try { navigator.mediaSession.playbackState = "paused"; } catch (e) {}
+      }
     } else next();
   }
 });
@@ -3436,6 +3623,13 @@ function openSettingsPage() {
   document.body.classList.add("settings");
   closeSidePanel();
   window.scrollTo({ top: 0, behavior: "instant" });
+  // Offline-Audio-Status frisch zählen (fire-and-forget). Läuft im
+  // Hintergrund, blockt das Öffnen der Page nicht.
+  if (typeof updateOfflineCacheStatus === "function") {
+    updateOfflineCacheStatus().catch(function (e) {
+      console.warn("[offline] cache count failed:", e);
+    });
+  }
 }
 function closeSettingsPage() {
   document.body.classList.remove("settings");
@@ -5216,22 +5410,42 @@ async function pullCloudData() {
       // Engagement-Layer: Dein Warum (G1) — cloud autoritativ, lokal als Cache.
       if (typeof s.why_text === "string") state.whyText = s.why_text;
       if (s.stats && typeof s.stats === "object") {
-        // Merge: cloud-stats sind autoritativ für vergangene Tage, lokale
-        // Inkremente von heute bleiben aber (in der Zwischenzeit aufgelaufen)
-        const today = isoToday();
-        const localToday = state.stats.daily && state.stats.daily[today];
-        state.stats = s.stats;
-        if (!state.stats.daily) state.stats.daily = {};
-        if (!state.stats.all_time) state.stats.all_time = {};
-        if (localToday) {
-          // Lokale > Cloud, falls die Cloud noch alte Werte hat
-          const cloudToday = state.stats.daily[today] || { plays: 0, reveals: 0, rated: 0 };
-          state.stats.daily[today] = {
-            plays: Math.max(cloudToday.plays || 0, localToday.plays || 0),
-            reveals: Math.max(cloudToday.reveals || 0, localToday.reveals || 0),
-            rated: Math.max(cloudToday.rated || 0, localToday.rated || 0),
-          };
+        // Merge per-day mit Max() — Cloud und lokal werden so kombiniert, dass
+        // offline aufgelaufene Tage erhalten bleiben. Wichtig für mehrtägige
+        // Offline-Phasen (Urlaub): vorher überschrieb `state.stats = s.stats`
+        // sämtliche lokal aufgelaufenen Tage, was den Streak beim ersten
+        // Online-Sync zerriss. Jetzt: Vereinigungsmenge aller Tage, pro Tag
+        // Max() pro Metrik. Konfliktfrei, weil Counter nie sinken.
+        const localDaily = (state.stats && state.stats.daily) || {};
+        const cloudDaily = s.stats.daily || {};
+        const mergedDaily = {};
+        const allDays = new Set(Object.keys(localDaily).concat(Object.keys(cloudDaily)));
+        allDays.forEach(function (day) {
+          const l = localDaily[day] || {};
+          const c = cloudDaily[day] || {};
+          const keys = new Set(Object.keys(l).concat(Object.keys(c)));
+          const merged = {};
+          keys.forEach(function (k) {
+            merged[k] = Math.max(Number(l[k]) || 0, Number(c[k]) || 0);
+          });
+          mergedDaily[day] = merged;
+        });
+        // all_time: longest_streak per Max, first_active_date per Min (= früher).
+        const localAll = (state.stats && state.stats.all_time) || {};
+        const cloudAll = s.stats.all_time || {};
+        const mergedAll = Object.assign({}, cloudAll);
+        if (typeof localAll.longest_streak === "number") {
+          mergedAll.longest_streak = Math.max(
+            Number(cloudAll.longest_streak) || 0,
+            localAll.longest_streak
+          );
         }
+        if (localAll.first_active_date) {
+          if (!mergedAll.first_active_date || localAll.first_active_date < mergedAll.first_active_date) {
+            mergedAll.first_active_date = localAll.first_active_date;
+          }
+        }
+        state.stats = { daily: mergedDaily, all_time: mergedAll };
       }
       // SRS Phase A: one-shot migration of existing ratings into card_state.
       // Idempotent via settings.srs_phase_a_migrated flag — runs only on first
@@ -6057,6 +6271,11 @@ function playFocusAudio() {
   if (!s) return;
   const src = audioSrcFor(s);
   if (!src) { showToast("Kein Audio für diesen Satz."); return; }
+  // Android-Flicker-Fix (gleiche Logik wie in play()): MediaSession-Status
+  // synchron vor dem src-Wechsel auf "playing".
+  if ("mediaSession" in navigator) {
+    try { navigator.mediaSession.playbackState = "playing"; } catch (e) {}
+  }
   audioEl.src = src;
   audioEl.playbackRate = state.speed;
   audioEl.play().then(function () {
@@ -6498,6 +6717,12 @@ function playCarCurrent() {
     carAdvance(true);
     return;
   }
+  // Android-Flicker-Fix: playbackState VOR src-Wechsel auf "playing", damit
+  // die Lücke zwischen ended → setTimeout → play() nicht zum Schließen der
+  // Status-Bar-Notification führt.
+  if ("mediaSession" in navigator) {
+    try { navigator.mediaSession.playbackState = "playing"; } catch (e) {}
+  }
   audioEl.src = src;
   audioEl.playbackRate = 1.0;
   audioEl.play().then(function () {
@@ -6509,6 +6734,8 @@ function playCarCurrent() {
     // sonst als stale an).
     if (typeof updateMediaSessionMetadata === "function") updateMediaSessionMetadata(s);
     incrementStat("plays");
+    // Cache-Warmup für den nächsten Clip in der Queue.
+    if (typeof preloadNextCarAudio === "function") preloadNextCarAudio();
   }).catch(function (err) {
     console.error("Car play failed", err);
     carStatusEl.textContent = "Audio-Fehler";
@@ -6544,6 +6771,15 @@ function carResume() {
 function carAdvance(skipPause) {
   if (!car.active) return;
   car.repCount++;
+
+  // Android-Flicker-Fix: Solange wir zwischen Sätzen sind (Shadow-Pause oder
+  // Sentence-Pause), audioEl ist gerade ended → Android würde die Media-
+  // Notification implizit schließen. Wir setzen playbackState explizit auf
+  // "paused" (statt "none"), damit die Notification mit Play-Icon stehen
+  // bleibt. Der nächste playCarCurrent() schaltet dann wieder auf "playing".
+  if ("mediaSession" in navigator) {
+    try { navigator.mediaSession.playbackState = "paused"; } catch (e) {}
+  }
 
   // PWA-Background-Fix: Android/iOS drosseln setTimeout in versteckten Seiten
   // (1× pro Minute, sobald Audio aus ist). Wenn der Screen gerade gesperrt ist

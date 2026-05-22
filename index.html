@@ -1377,6 +1377,25 @@
           <small class="settings-hint">Generiert Audio für alle User-Sätze, die übersetzt sind und noch kein Audio haben.</small>
         </section>
 
+        <section class="settings-section">
+          <h3 class="settings-section-title">
+            <span class="material-symbols-outlined" style="font-size:20px;">cloud_download</span>
+            Offline-Vorbereitung
+          </h3>
+          <div class="settings-card">
+            <div class="side-label">Audio-Cache <span id="offline-cache-status" class="api-status">— / —</span></div>
+            <p class="settings-hint" style="margin:8px 0 12px 0;">Lädt alle Satz-Audios in den Service-Worker-Cache, damit sie auch ohne Internet abspielen — z.B. im Flugmodus, Tunnel, Flugzeug oder unterwegs ohne Roaming.</p>
+            <button class="side-btn primary" id="prefetch-audios-btn">
+              <span id="prefetch-audios-text">Alle Audios für offline vorbereiten</span>
+            </button>
+            <div id="prefetch-progress" class="prefetch-progress" style="display:none;">
+              <div class="prefetch-progress-bar"><div class="prefetch-progress-fill" id="prefetch-progress-fill"></div></div>
+              <div class="prefetch-progress-text" id="prefetch-progress-text">0 / 0</div>
+            </div>
+            <small class="settings-hint">Originale werden vom Repo geladen, eigene Sätze aus Supabase Storage. Wiederholtes Drücken überspringt bereits gecachte Dateien — keine Mehrkosten.</small>
+          </div>
+        </section>
+
         <!-- Hidden legacy elements still referenced by JS. UI ist entfernt,
              aber die JS-Refs müssen bleiben, sonst crasht buildIntroCatSelect()
              oder updatePendingBadge(). -->

@@ -18,7 +18,7 @@
  * (e.g. https://<user>.github.io/<repo>/) without changes.
  */
 
-const VERSION = "lf-v8-2026-05-21-saetze-edit-search";
+const VERSION = "lf-v9-2026-05-22-offline-prep";
 const SHELL_CACHE = "shell-" + VERSION;
 const AUDIO_CACHE = "audio-" + VERSION;
 
