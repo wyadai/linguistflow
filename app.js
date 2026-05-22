@@ -6545,13 +6545,79 @@ const car = {
   paused: false,
   pendingTimer: null,
   wakeLock: null,
-  // Background-Audio-Fix (Mai 2026): trackt die ID, deren audioEl.src gerade
-  // geladen ist. Bei Shadow-Repeats des gleichen Satzes brauchen wir src nicht
-  // neu zu setzen — currentTime=0 + play() reicht. Hält das Audio-Element warm
-  // und verhindert, dass Android Chrome nach 1–2 src-Wechseln im Hintergrund
-  // (Bildschirm gesperrt) den Background-Audio-Slot freigibt.
+  // Background-Audio-Fix (Mai 2026, double-buffered): zwei HTMLAudioElement-
+  // Instanzen, die sich abwechseln. Während Buf A den aktuellen Satz spielt,
+  // lädt Buf B den nächsten Satz schon vor (src + load()). Auf `ended` wechseln
+  // wir auf B und spielen — KEIN src-Reset auf dem aktiven Element zur Play-Zeit
+  // nötig. Das ist der einzige zuverlässige Weg, um Android Chrome dazu zu
+  // bringen, im Hintergrund (Bildschirm gesperrt) mehr als 1–2 Sätze
+  // hintereinander zu spielen.
+  //   _buffers     = [audioEl, audioElB]  — wird lazy in ensureCarBuffers() befüllt
+  //   _activeBuf   = 0 | 1                — Index in _buffers für aktuellen Player
+  //   _preloadedId = ID, die im OTHER-Buf vorgeladen ist (null = nichts vorgeladen)
+  //   _lastSrcId   = ID, die zuletzt gespielt wurde (für Shadow-Repeat-Detection)
+  _buffers: null,
+  _activeBuf: 0,
+  _preloadedId: null,
   _lastSrcId: null,
 };
+
+// Zweites Audio-Element für Double-Buffering. Wird lazy beim ersten
+// startCarSession() angelegt und in den DOM gehängt. Hidden, denselben
+// preload="auto"-Mode wie das Haupt-Element.
+let audioElB = null;
+function ensureCarBuffers() {
+  if (car._buffers) return;
+  audioElB = document.createElement("audio");
+  audioElB.preload = "auto";
+  audioElB.style.display = "none";
+  document.body.appendChild(audioElB);
+  audioElB.addEventListener("ended", function () {
+    if (!car.active || car.paused) return;
+    // Nur reagieren, wenn dieses Element gerade der AKTIVE Car-Buf ist.
+    if (!car._buffers || car._buffers[car._activeBuf] !== audioElB) return;
+    carAdvance(false);
+  });
+  car._buffers = [audioEl, audioElB];
+}
+function carActiveBuf() {
+  return car._buffers ? car._buffers[car._activeBuf] : audioEl;
+}
+function carOtherBuf() {
+  return car._buffers ? car._buffers[1 - car._activeBuf] : null;
+}
+// Preload des NÄCHSTEN Plays in den OTHER-Buf. Setzt src + ruft load() auf,
+// damit der Browser die Datei schon dekodiert, während der aktuelle Satz noch
+// läuft. Beim nächsten playCarCurrent() können wir dann einfach swap+play().
+function preloadOtherBuf() {
+  if (!car._buffers || !car.active) return;
+  // Welche ID kommt als nächstes?
+  //   - repCount+1 < repeats  → noch ein Shadow-Repeat desselben Satzes
+  //   - sonst                  → nächste Karte (mit Loop/Shuffle handled in carAdvance)
+  let nextId;
+  if (car.repCount + 1 < car.repeats) {
+    nextId = car.queue[car.idx];
+  } else {
+    const nextIdx = car.idx + 1 >= car.queue.length
+      ? (car.loop ? 0 : -1)
+      : car.idx + 1;
+    if (nextIdx < 0) return;  // Session endet — nichts zu preloaden
+    nextId = car.queue[nextIdx];
+  }
+  const nextS = getSentenceById(nextId);
+  if (!nextS) return;
+  const nextSrc = audioSrcFor(nextS);
+  if (!nextSrc) return;
+  const otherBuf = carOtherBuf();
+  if (!otherBuf) return;
+  // Bereits vorgeladen für diese ID? Skip.
+  if (car._preloadedId === nextId && otherBuf.src && otherBuf.readyState >= 2) return;
+  try {
+    otherBuf.src = nextSrc;
+    otherBuf.load();
+    car._preloadedId = nextId;
+  } catch (e) { /* ignore */ }
+}
 
 // One-time migration: bump 3.0/1.5 -> 0.5/1.0 if user is still on old defaults
 if (!localStorage.getItem("hl_car_defaults_v2")) {
@@ -6782,8 +6848,11 @@ function exitCarSession() {
   car.active = false;
   car.paused = false;
   car._lastSrcId = null;
+  car._preloadedId = null;
   if (car.pendingTimer) { clearTimeout(car.pendingTimer); car.pendingTimer = null; }
+  // Double-Buffer: beide Audio-Elemente pausieren beim Exit.
   try { audioEl.pause(); } catch (e) { /* ignore */ }
+  if (audioElB) { try { audioElB.pause(); } catch (e) { /* ignore */ } }
   releaseCarWakeLock();
   carActiveEl.style.display = "none";
   carSetupEl.style.display = "block";
@@ -6816,6 +6885,7 @@ function renderCarCard() {
 
 function playCarCurrent() {
   if (!car.active || car.paused) return;
+  ensureCarBuffers();
   const id = car.queue[car.idx];
   const s = getSentenceById(id);
   if (!s) { exitCarSession(); return; }
@@ -6832,22 +6902,38 @@ function playCarCurrent() {
   if ("mediaSession" in navigator) {
     try { navigator.mediaSession.playbackState = "playing"; } catch (e) {}
   }
-  // Background-Audio-Fix (Mai 2026): wenn wir den GLEICHEN Satz nochmal
-  // abspielen (shadow repeat), lassen wir src unverändert und springen nur
-  // auf currentTime=0. Vorteile bei Screen-Sperre: (1) Audio-Element bleibt
-  // "warm" — Android entzieht uns den Background-Audio-Slot erst nach mehreren
-  // src-Wechseln; (2) keine Browser-Cache-Round-Trip; (3) play() resolved
-  // praktisch instant statt erst nach loadedmetadata. Bei echten Karten-
-  // Wechseln (id != _lastSrcId) setzen wir src wie gehabt.
-  const sameTrack = car._lastSrcId === id && audioEl.src && audioEl.readyState >= 2;
-  if (!sameTrack) {
-    audioEl.src = src;
-    car._lastSrcId = id;
+
+  // Double-Buffered Audio (Mai 2026): drei Pfade, je nachdem ob der nächste
+  // Buf bereits die richtige Karte vorgeladen hat.
+  //   (1) OTHER-Buf hat die ID vorgeladen → swap zu OTHER, einfach play()
+  //       (KEIN src-Reset — das ist der Background-friendly Fall).
+  //   (2) ACTIVE-Buf hat den gleichen Satz noch geladen (Shadow-Repeat oder
+  //       Fallback nach failed preload) → currentTime=0 auf ACTIVE, play().
+  //   (3) Fallback: ACTIVE-Buf src neu setzen und play() (initial play oder
+  //       nach Skip/Resume — hier sind wir typisch noch im Foreground).
+  const otherBuf = carOtherBuf();
+  const activeBuf = carActiveBuf();
+  const otherHasIt = car._preloadedId === id && otherBuf && otherBuf.src && otherBuf.readyState >= 2;
+  let bufToPlay;
+  if (otherHasIt) {
+    // Pfad (1): swap
+    try { activeBuf.pause(); } catch (e) { /* ignore */ }
+    car._activeBuf = 1 - car._activeBuf;
+    bufToPlay = carActiveBuf();
+    try { bufToPlay.currentTime = 0; } catch (e) { /* ignore */ }
+    car._preloadedId = null;
+  } else if (car._lastSrcId === id && activeBuf.src) {
+    // Pfad (2): Shadow-Repeat ohne Preload-Hit — rewind und play
+    bufToPlay = activeBuf;
+    try { bufToPlay.currentTime = 0; } catch (e) { /* ignore */ }
   } else {
-    try { audioEl.currentTime = 0; } catch (e) { /* ignore */ }
+    // Pfad (3): Fallback — vollständiger src-Reset
+    bufToPlay = activeBuf;
+    bufToPlay.src = src;
   }
-  audioEl.playbackRate = 1.0;
-  audioEl.play().then(function () {
+  car._lastSrcId = id;
+  bufToPlay.playbackRate = 1.0;
+  bufToPlay.play().then(function () {
     carPauseIcon.style.display = "block";
     carPlayIcon.style.display = "none";
     carStatusEl.textContent = "Spielt ab";
@@ -6855,25 +6941,25 @@ function playCarCurrent() {
     // der Media-Session-Player nach dem ersten Clip (Android sieht die Session
     // sonst als stale an).
     if (typeof updateMediaSessionMetadata === "function") updateMediaSessionMetadata(s);
-    // Background-Audio-Fix (Mai 2026): setPositionState() verankert die
-    // MediaSession bei Android. Ohne diesen Anker betrachtet Chrome die
-    // Session nach ein paar src-Wechseln im Hintergrund als "stale" und
-    // gibt den Audio-Slot frei → Wiedergabe stoppt. Mit duration+position
-    // bleibt die Session aktiv.
+    // Background-Audio-Fix: setPositionState() verankert die MediaSession bei
+    // Android, sonst stuft Chrome die Session im Hintergrund als "stale" ein.
     if ("mediaSession" in navigator && typeof navigator.mediaSession.setPositionState === "function") {
-      const dur = audioEl.duration;
+      const dur = bufToPlay.duration;
       if (dur && isFinite(dur) && dur > 0) {
         try {
           navigator.mediaSession.setPositionState({
             duration: dur,
-            playbackRate: audioEl.playbackRate || 1.0,
+            playbackRate: bufToPlay.playbackRate || 1.0,
             position: 0,
           });
         } catch (e) { /* invalid state — ignore */ }
       }
     }
     incrementStat("plays");
-    // Cache-Warmup für den nächsten Clip in der Queue.
+    // Double-Buffer: jetzt den NÄCHSTEN Play in den OTHER-Buf vorladen, damit
+    // der Swap beim nächsten ended() ohne src-Reset auskommt.
+    preloadOtherBuf();
+    // SW-Cache-Warmup für die übernächste Karte (eine vor der nächsten).
     if (typeof preloadNextCarAudio === "function") preloadNextCarAudio();
   }).catch(function (err) {
     console.error("Car play failed", err);
@@ -6886,7 +6972,9 @@ function playCarCurrent() {
 function carPause() {
   if (!car.active) return;
   car.paused = true;
-  try { audioEl.pause(); } catch (e) { /* ignore */ }
+  // Double-Buffer: nur den AKTIVEN Buf pausieren. Der andere ist vorgeladen
+  // aber nicht abgespielt — kein pause() nötig.
+  try { carActiveBuf().pause(); } catch (e) { /* ignore */ }
   if (car.pendingTimer) { clearTimeout(car.pendingTimer); car.pendingTimer = null; }
   carPauseIcon.style.display = "none";
   carPlayIcon.style.display = "block";
@@ -6896,8 +6984,9 @@ function carPause() {
 function carResume() {
   if (!car.active) return;
   car.paused = false;
-  if (audioEl.src && audioEl.paused && audioEl.currentTime > 0 && audioEl.currentTime < (audioEl.duration || Infinity)) {
-    audioEl.play().then(function () {
+  const buf = carActiveBuf();
+  if (buf.src && buf.paused && buf.currentTime > 0 && buf.currentTime < (buf.duration || Infinity)) {
+    buf.play().then(function () {
       carPauseIcon.style.display = "block";
       carPlayIcon.style.display = "none";
       carStatusEl.textContent = "Spielt ab";
@@ -6911,24 +7000,20 @@ function carAdvance(skipPause) {
   if (!car.active) return;
   car.repCount++;
 
+  // Android-Flicker-Fix: Solange wir zwischen Sätzen sind (Shadow-Pause oder
+  // Sentence-Pause), audioEl ist gerade ended → Android würde die Media-
+  // Notification implizit schließen. Wir setzen playbackState explizit auf
+  // "paused" (statt "none"), damit die Notification mit Play-Icon stehen
+  // bleibt. Der nächste playCarCurrent() schaltet dann wieder auf "playing".
+  if ("mediaSession" in navigator) {
+    try { navigator.mediaSession.playbackState = "paused"; } catch (e) {}
+  }
+
   // PWA-Background-Fix: Android/iOS drosseln setTimeout in versteckten Seiten
   // (1× pro Minute, sobald Audio aus ist). Wenn der Screen gerade gesperrt ist
   // → keinen Timer schedulen, direkt synchron weitermachen, damit das nächste
   // audioEl.play() die Tab-"audible"-Status erneuert.
   const inBackground = typeof document !== "undefined" && document.hidden;
-
-  // Android-Flicker-Fix (verfeinert Mai 2026): Nur dann playbackState auf
-  // "paused" toggeln, wenn es WIRKLICH eine sichtbare Lücke gibt (im
-  // Vordergrund mit Pause-Delay). Im Hintergrund oder bei skipPause=true
-  // springen wir synchron sofort in den nächsten playCarCurrent() — und
-  // ein zwischengeschobenes "paused" würde Android signalisieren "User hat
-  // pausiert", was die Session deprioritisiert und nach 1–2 Sätzen den
-  // Background-Audio-Slot kappt. „playing" durchhalten.
-  const willHaveVisibleGap = !inBackground && !skipPause;
-  if (willHaveVisibleGap && "mediaSession" in navigator) {
-    try { navigator.mediaSession.playbackState = "paused"; } catch (e) {}
-  }
-
   const proceedNext = function () {
     if (car.active && !car.paused) {
       renderCarCard();
@@ -6979,7 +7064,8 @@ function carAdvance(skipPause) {
 function carSkipNext() {
   if (!car.active) return;
   if (car.pendingTimer) { clearTimeout(car.pendingTimer); car.pendingTimer = null; }
-  try { audioEl.pause(); } catch (e) { /* ignore */ }
+  // Double-Buffer: aktiven Buf pausieren (nicht zwangsweise audioEl).
+  try { carActiveBuf().pause(); } catch (e) { /* ignore */ }
   car.repCount = car.repeats - 1;
   carAdvance(true);
 }
@@ -6987,15 +7073,20 @@ function carSkipNext() {
 function carSkipPrev() {
   if (!car.active) return;
   if (car.pendingTimer) { clearTimeout(car.pendingTimer); car.pendingTimer = null; }
-  try { audioEl.pause(); } catch (e) { /* ignore */ }
+  try { carActiveBuf().pause(); } catch (e) { /* ignore */ }
   car.repCount = 0;
   car.idx = (car.idx - 1 + car.queue.length) % car.queue.length;
+  // Skip-Prev springt zu einer anderen ID → preload für OTHER-Buf ist ungültig.
+  car._preloadedId = null;
   renderCarCard();
   if (!car.paused) playCarCurrent();
 }
 
 audioEl.addEventListener("ended", function () {
   if (!car.active || car.paused) return;
+  // Double-Buffer: nur reagieren, wenn audioEl der AKTIVE Car-Buf ist.
+  // (audioElB hat seinen eigenen ended-Handler in ensureCarBuffers().)
+  if (car._buffers && car._buffers[car._activeBuf] !== audioEl) return;
   carAdvance(false);
 });
 

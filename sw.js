@@ -18,7 +18,7 @@
  * (e.g. https://<user>.github.io/<repo>/) without changes.
  */
 
-const VERSION = "lf-v13-2026-05-22-car-bg-audio-fix";
+const VERSION = "lf-v14-2026-05-22-car-double-buffer";
 const SHELL_CACHE = "shell-" + VERSION;
 const AUDIO_CACHE = "audio-" + VERSION;
 
