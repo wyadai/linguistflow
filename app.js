@@ -6745,10 +6745,11 @@ const INTRO_POOL_SIZE = 5;
 
 // Glossika-Style Expositions-Anzahl: jede Karte pro Session INTRO_REPS-mal,
 // in runden-weise shuffleter Reihenfolge. 5 Karten × 5 Wiederholungen = 25
-// Plays pro Session. Mit Auto-Advance auf Audio-Ende läuft das passiv durch,
-// "Nochmal" replayed nur den aktuellen Satz, "Verstanden" überspringt eine
-// Wiederholung manuell. Issue-Quelle: User-Feedback Mai 2026 ("jetzt wird
-// jede der 5 Karte nur einmal angezeigt").
+// Plays pro Session. Der User klickt nach jeder Karte manuell „Verstanden"
+// (zählt intro_count hoch) oder „Nochmal" (replayed Audio). Audio der
+// nächsten Karte spielt automatisch ab — siehe `intro.idx > 0`-Check in
+// showIntroCard. Issue-Quelle: User-Feedback Mai 2026 ("jetzt wird jede der
+// 5 Karte nur einmal angezeigt", später "Auto-Advance fühlt sich falsch an").
 const INTRO_REPS = 5;
 
 function buildIntroQueue() {
@@ -6850,8 +6851,6 @@ function showIntroCard() {
   const s = getSentenceById(id);
   if (!s) { intro.idx++; showIntroCard(); return; }
   const count = getIntroCount(id);
-  // Reset Auto-Advance-Pause für die neue Wiederholung
-  intro._pauseAutoAdvance = false;
   // Progress header — "Wiederholung X / Y" weil bei Glossika 5 Karten × 5 Reps = 25
   introProgressTextEl.textContent = "Wiederholung " + (intro.idx + 1) + " / " + intro.queue.length;
   const remaining = introPoolCount();
@@ -6901,29 +6900,24 @@ introPlayBtn.onclick = function () {
   audioEl.play().catch(function (err) { console.warn("Intro play failed:", err); });
 };
 
-// Glossika-Stil Auto-Advance: nach jedem Audio-Ende zur nächsten Wiederholung.
-// Greift NUR im Intro-Mode (der globale audio-ended-Listener returnt früh
-// für state.mode === "intro"). Nochmal-Klicks setzen _pauseAutoAdvance, damit
-// der nächste End-Tick nicht durchspringt und der User stehenbleibt.
-audioEl.addEventListener("ended", function () {
-  if (state.mode !== "intro" || !intro.active) return;
-  if (intro._pauseAutoAdvance) { intro._pauseAutoAdvance = false; return; }
-  // Auto-Advance verwendet die gleiche Logik wie der Verstanden-Button
-  // (intro_count hochzählen + showIntroCard).
-  introGotBtn.click();
-});
+// Intro-Mode: KEIN Auto-Advance auf Audio-Ende. Nach dem Audio bleibt die
+// Karte stehen, der User klickt manuell „Verstanden" (oder „Nochmal"), um
+// weiterzukommen. Die nächste Karte spielt dann automatisch ab (siehe
+// `intro.idx > 0` in showIntroCard). User-Entscheidung Mai 2026: Auto-Advance
+// fühlte sich wie ein Zwangsdurchlauf an — bewusste Bestätigung pro Karte
+// passt besser zur "Sanfte Einführung"-Idee.
+//
+// Der globale audio-ended-Listener returnt früh für state.mode === "intro",
+// also tut hier explizit nichts zu hooken — wir lassen audio einfach enden.
 
 introAgainBtn.onclick = function () {
   if (!intro.active) return;
   // "Nochmal": Audio einmal neu abspielen, KEIN Advance.
-  // Karte kommt sowieso noch INTRO_REPS-mal in der Queue dran (Glossika-Stil),
-  // also macht Pushen ans Ende keinen Sinn mehr. Mit _pauseAutoAdvance=true
-  // verhindern wir, dass der Audio-Ended-Handler nach dem Replay vorwärts springt.
+  // Karte kommt sowieso noch INTRO_REPS-mal in der Queue dran (Glossika-Stil).
   const id = intro.queue[intro.idx];
   const s = getSentenceById(id);
   if (!s) return;
   intro.again++;
-  intro._pauseAutoAdvance = true;
   const src = audioSrcFor(s);
   if (!src) return;
   audioEl.src = src;
