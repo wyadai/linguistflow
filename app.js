@@ -2392,7 +2392,7 @@ function renderHeroButton() {
   } catch (e) { /* car-const noch nicht initialisiert — first-render-OK */ }
   if (eligibleCount === 0) {
     btn.disabled = true;
-    if (sub) sub.textContent = "Erst Audio generieren — Auto-Modus braucht Audio-Karten.";
+    if (sub) sub.textContent = "Erst Audio generieren — Shadow Mode braucht Audio-Karten.";
   } else {
     btn.disabled = false;
     if (sub) sub.textContent = "5 Minuten Shadowing — direkt los, ohne Setup.";
@@ -2402,11 +2402,11 @@ function startQuickListenSession() {
   if (typeof setCarModeActive !== "function" || typeof startCarSession !== "function") return;
   const eligible = carEligibleSentences();
   if (!eligible.length) {
-    showToast("Keine Audio-Karten in deinem Auto-Modus-Filter. Setup öffnen?", 4000);
+    showToast("Keine Audio-Karten in deinem Shadow-Mode-Filter. Setup öffnen?", 4000);
     setCarModeActive();
     return;
   }
-  // Auto-Modus-Body-Class setzen + direkt in die Session springen (überspringt Setup).
+  // Shadow-Mode-Body-Class setzen + direkt in die Session springen (überspringt Setup).
   setCarModeActive();
   startCarSession();
   // 5-Min-Auto-Stop. Bestehender Timer wird abgeräumt, falls man's nochmal drückt.
@@ -6545,6 +6545,12 @@ const car = {
   paused: false,
   pendingTimer: null,
   wakeLock: null,
+  // Background-Audio-Fix (Mai 2026): trackt die ID, deren audioEl.src gerade
+  // geladen ist. Bei Shadow-Repeats des gleichen Satzes brauchen wir src nicht
+  // neu zu setzen — currentTime=0 + play() reicht. Hält das Audio-Element warm
+  // und verhindert, dass Android Chrome nach 1–2 src-Wechseln im Hintergrund
+  // (Bildschirm gesperrt) den Background-Audio-Slot freigibt.
+  _lastSrcId: null,
 };
 
 // One-time migration: bump 3.0/1.5 -> 0.5/1.0 if user is still on old defaults
@@ -6775,6 +6781,7 @@ function startCarSession() {
 function exitCarSession() {
   car.active = false;
   car.paused = false;
+  car._lastSrcId = null;
   if (car.pendingTimer) { clearTimeout(car.pendingTimer); car.pendingTimer = null; }
   try { audioEl.pause(); } catch (e) { /* ignore */ }
   releaseCarWakeLock();
@@ -6825,7 +6832,20 @@ function playCarCurrent() {
   if ("mediaSession" in navigator) {
     try { navigator.mediaSession.playbackState = "playing"; } catch (e) {}
   }
-  audioEl.src = src;
+  // Background-Audio-Fix (Mai 2026): wenn wir den GLEICHEN Satz nochmal
+  // abspielen (shadow repeat), lassen wir src unverändert und springen nur
+  // auf currentTime=0. Vorteile bei Screen-Sperre: (1) Audio-Element bleibt
+  // "warm" — Android entzieht uns den Background-Audio-Slot erst nach mehreren
+  // src-Wechseln; (2) keine Browser-Cache-Round-Trip; (3) play() resolved
+  // praktisch instant statt erst nach loadedmetadata. Bei echten Karten-
+  // Wechseln (id != _lastSrcId) setzen wir src wie gehabt.
+  const sameTrack = car._lastSrcId === id && audioEl.src && audioEl.readyState >= 2;
+  if (!sameTrack) {
+    audioEl.src = src;
+    car._lastSrcId = id;
+  } else {
+    try { audioEl.currentTime = 0; } catch (e) { /* ignore */ }
+  }
   audioEl.playbackRate = 1.0;
   audioEl.play().then(function () {
     carPauseIcon.style.display = "block";
@@ -6835,6 +6855,23 @@ function playCarCurrent() {
     // der Media-Session-Player nach dem ersten Clip (Android sieht die Session
     // sonst als stale an).
     if (typeof updateMediaSessionMetadata === "function") updateMediaSessionMetadata(s);
+    // Background-Audio-Fix (Mai 2026): setPositionState() verankert die
+    // MediaSession bei Android. Ohne diesen Anker betrachtet Chrome die
+    // Session nach ein paar src-Wechseln im Hintergrund als "stale" und
+    // gibt den Audio-Slot frei → Wiedergabe stoppt. Mit duration+position
+    // bleibt die Session aktiv.
+    if ("mediaSession" in navigator && typeof navigator.mediaSession.setPositionState === "function") {
+      const dur = audioEl.duration;
+      if (dur && isFinite(dur) && dur > 0) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: dur,
+            playbackRate: audioEl.playbackRate || 1.0,
+            position: 0,
+          });
+        } catch (e) { /* invalid state — ignore */ }
+      }
+    }
     incrementStat("plays");
     // Cache-Warmup für den nächsten Clip in der Queue.
     if (typeof preloadNextCarAudio === "function") preloadNextCarAudio();
@@ -6874,20 +6911,24 @@ function carAdvance(skipPause) {
   if (!car.active) return;
   car.repCount++;
 
-  // Android-Flicker-Fix: Solange wir zwischen Sätzen sind (Shadow-Pause oder
-  // Sentence-Pause), audioEl ist gerade ended → Android würde die Media-
-  // Notification implizit schließen. Wir setzen playbackState explizit auf
-  // "paused" (statt "none"), damit die Notification mit Play-Icon stehen
-  // bleibt. Der nächste playCarCurrent() schaltet dann wieder auf "playing".
-  if ("mediaSession" in navigator) {
-    try { navigator.mediaSession.playbackState = "paused"; } catch (e) {}
-  }
-
   // PWA-Background-Fix: Android/iOS drosseln setTimeout in versteckten Seiten
   // (1× pro Minute, sobald Audio aus ist). Wenn der Screen gerade gesperrt ist
   // → keinen Timer schedulen, direkt synchron weitermachen, damit das nächste
   // audioEl.play() die Tab-"audible"-Status erneuert.
   const inBackground = typeof document !== "undefined" && document.hidden;
+
+  // Android-Flicker-Fix (verfeinert Mai 2026): Nur dann playbackState auf
+  // "paused" toggeln, wenn es WIRKLICH eine sichtbare Lücke gibt (im
+  // Vordergrund mit Pause-Delay). Im Hintergrund oder bei skipPause=true
+  // springen wir synchron sofort in den nächsten playCarCurrent() — und
+  // ein zwischengeschobenes "paused" würde Android signalisieren "User hat
+  // pausiert", was die Session deprioritisiert und nach 1–2 Sätzen den
+  // Background-Audio-Slot kappt. „playing" durchhalten.
+  const willHaveVisibleGap = !inBackground && !skipPause;
+  if (willHaveVisibleGap && "mediaSession" in navigator) {
+    try { navigator.mediaSession.playbackState = "paused"; } catch (e) {}
+  }
+
   const proceedNext = function () {
     if (car.active && !car.paused) {
       renderCarCard();
@@ -6961,7 +7002,7 @@ audioEl.addEventListener("ended", function () {
 carStartBtn.onclick = startCarSession;
 carCloseBtn.onclick = function () {
   if (car.idx > 0) {
-    if (!confirm("Auto-Modus beenden?")) return;
+    if (!confirm("Shadow Mode beenden?")) return;
   }
   exitCarSession();
 };
@@ -6992,7 +7033,7 @@ function setCarModeActive() {
   recallBtn.classList.remove("primary"); recallBtn.classList.add("secondary");
   focusBtn.classList.remove("primary"); focusBtn.classList.add("secondary");
   carBtn.classList.remove("secondary"); carBtn.classList.add("primary");
-  if (modeHint) modeHint.textContent = "Auto-Modus: konfiguriere die Session und drücke Start.";
+  if (modeHint) modeHint.textContent = "Shadow Mode: konfiguriere die Session und drücke Start.";
 
   if (car.active) {
     carSetupEl.style.display = "none";

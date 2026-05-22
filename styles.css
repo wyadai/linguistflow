@@ -3362,7 +3362,7 @@ body.stats .stats-page { display: block; margin-top: 4px; }
 }
 
 /* =====================================================================
-   AUTO-MODUS (Car Mode) — Shadowing fürs Auto
+   SHADOW MODE (Car Mode — interner Name) — Shadowing-Loop
    ===================================================================== */
 
 /* Hide main view chrome when in Car Mode (matches focus-mode pattern) */

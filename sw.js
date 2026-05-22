@@ -18,7 +18,7 @@
  * (e.g. https://<user>.github.io/<repo>/) without changes.
  */
 
-const VERSION = "lf-v11-2026-05-22-dashboard-sidebar-link";
+const VERSION = "lf-v13-2026-05-22-car-bg-audio-fix";
 const SHELL_CACHE = "shell-" + VERSION;
 const AUDIO_CACHE = "audio-" + VERSION;
 
