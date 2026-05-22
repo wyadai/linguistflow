@@ -54,6 +54,12 @@
     </div>
     <div class="side-panel-body">
 
+      <button class="side-section-link" id="side-dashboard-link">
+        <span class="side-sum-icon material-symbols-outlined">dashboard</span>
+        Dashboard
+      </button>
+
+      <div class="side-section-divider"></div>
       <div class="side-section-label">Praxis</div>
 
       <button class="side-section-link" id="side-intro-link">
@@ -191,6 +197,53 @@
         <span class="hero-listen-chip" id="hero-listen-chip">5 Min</span>
       </button>
 
+      <!-- ===== "Heute üben" Aktionsblock — Recall / Einführung / Szenen =====
+           Direkter Einstieg in die drei aktiven Übe-Modi. Counter sind live
+           aus recallQueue/dueCount/introPoolCount/state.scenes gespeist und
+           werden via renderTodayActions() in renderEngagement() aktualisiert. -->
+      <div class="today-actions" id="today-actions">
+        <div class="today-actions-header">
+          <span class="material-symbols-outlined" style="font-size:18px;">today</span>
+          <span class="today-actions-label">Heute üben</span>
+          <span class="today-actions-hint" id="today-actions-hint">Wähl, womit du heute starten willst.</span>
+        </div>
+        <div class="today-actions-grid">
+          <button class="today-action-card" id="today-action-recall" data-action="recall" type="button">
+            <span class="today-action-icon recall">
+              <span class="material-symbols-outlined" style="font-size:22px;">visibility_off</span>
+            </span>
+            <span class="today-action-body">
+              <span class="today-action-title">Active Recall</span>
+              <span class="today-action-sub" id="today-action-recall-sub">heute nichts fällig</span>
+            </span>
+            <span class="today-action-count" id="today-action-recall-count" style="display:none;">0</span>
+            <span class="today-action-arrow"><span class="material-symbols-outlined" style="font-size:18px;">arrow_forward</span></span>
+          </button>
+          <button class="today-action-card" id="today-action-intro" data-action="intro" type="button">
+            <span class="today-action-icon intro">
+              <span class="material-symbols-outlined" style="font-size:22px;">school</span>
+            </span>
+            <span class="today-action-body">
+              <span class="today-action-title">Einführung</span>
+              <span class="today-action-sub" id="today-action-intro-sub">keine Karten warten</span>
+            </span>
+            <span class="today-action-count" id="today-action-intro-count" style="display:none;">0</span>
+            <span class="today-action-arrow"><span class="material-symbols-outlined" style="font-size:18px;">arrow_forward</span></span>
+          </button>
+          <button class="today-action-card" id="today-action-scenes" data-action="scenes" type="button" style="display:none;">
+            <span class="today-action-icon scenes">
+              <span class="material-symbols-outlined" style="font-size:22px;">forum</span>
+            </span>
+            <span class="today-action-body">
+              <span class="today-action-title">Szene üben</span>
+              <span class="today-action-sub" id="today-action-scenes-sub">keine aktiven Szenen</span>
+            </span>
+            <span class="today-action-count" id="today-action-scenes-count" style="display:none;">0</span>
+            <span class="today-action-arrow"><span class="material-symbols-outlined" style="font-size:18px;">arrow_forward</span></span>
+          </button>
+        </div>
+      </div>
+
       <!-- Stats cards -->
       <div class="stats-row">
         <div class="stat-card">
@@ -273,36 +326,55 @@
       </div>
       <div class="hint" id="mode-hint">Spanisch zuerst lesen/hören, Deutsch als Hilfe darunter.</div>
 
-      <!-- Rating filter (JS renders chips into this) -->
-      <div class="rating-filter" id="rating-filter"></div>
+      <!-- ===== Karten-Bibliothek (einklappbar) =====
+           Im Listen-Modus per Default zu (Dashboard fokussiert auf Heute-Block);
+           öffnen via Summary-Klick, Zustand persistiert in localStorage
+           (hl_browse_open). Recall-Mode öffnet das Akkordeon automatisch über
+           den onclick-Handler im JS-Code. -->
+      <details class="cards-browser" id="cards-browser">
+        <summary class="cards-browser-summary">
+          <span class="cards-browser-icon">
+            <span class="material-symbols-outlined" style="font-size:20px;">library_books</span>
+          </span>
+          <span class="cards-browser-label">Karten durchstöbern</span>
+          <span class="cards-browser-meta" id="cards-browser-meta">—</span>
+          <span class="cards-browser-chevron">
+            <span class="material-symbols-outlined" style="font-size:22px;">expand_more</span>
+          </span>
+        </summary>
+        <div class="cards-browser-body">
+          <!-- Rating filter (JS renders chips into this) -->
+          <div class="rating-filter" id="rating-filter"></div>
 
-      <!-- Toolbar with toggles + sort -->
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <div class="toggle-wrap">
-            <span>Übersetzung</span>
-            <div class="toggle on" id="translate-toggle"></div>
+          <!-- Toolbar with toggles + sort -->
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <div class="toggle-wrap">
+                <span>Übersetzung</span>
+                <div class="toggle on" id="translate-toggle"></div>
+              </div>
+              <div class="toggle-wrap" id="autoplay-wrap">
+                <span>Auto-Play</span>
+                <div class="toggle on" id="autoplay-toggle"></div>
+              </div>
+            </div>
+            <div class="toolbar-right">
+              <div class="main-sort-wrap">
+                <span class="main-sort-label">Sortieren</span>
+                <select id="main-sort" class="main-sort-select">
+                  <option value="oldest">Älteste zuerst</option>
+                  <option value="newest">Neueste zuerst</option>
+                  <option value="random">Zufällig</option>
+                </select>
+              </div>
+            </div>
           </div>
-          <div class="toggle-wrap" id="autoplay-wrap">
-            <span>Auto-Play</span>
-            <div class="toggle on" id="autoplay-toggle"></div>
-          </div>
-        </div>
-        <div class="toolbar-right">
-          <div class="main-sort-wrap">
-            <span class="main-sort-label">Sortieren</span>
-            <select id="main-sort" class="main-sort-select">
-              <option value="oldest">Älteste zuerst</option>
-              <option value="newest">Neueste zuerst</option>
-              <option value="random">Zufällig</option>
-            </select>
-          </div>
-        </div>
-      </div>
 
-      <!-- Cards -->
-      <div id="cards"></div>
-      <div class="no-results" id="no-results" style="display:none;">Keine Sätze in dieser Auswahl.</div>
+          <!-- Cards -->
+          <div id="cards"></div>
+          <div class="no-results" id="no-results" style="display:none;">Keine Sätze in dieser Auswahl.</div>
+        </div>
+      </details>
 
       <!-- ===== Fokus-Session (nur im Fokus-Modus sichtbar) ===== -->
       <div class="focus-session" id="focus-session">
@@ -1186,54 +1258,9 @@
           </div>
         </div>
 
-        <!-- Heute fällig -->
-        <div class="stats-card">
-          <div class="stats-card-header">
-            <h2>Heute fällig</h2>
-            <span class="stats-card-sub">Recall · Phase-A SRS</span>
-          </div>
-          <div class="stats-due-row">
-            <div class="stats-due-icon warning"><span class="material-symbols-outlined" style="font-size:20px;">error</span></div>
-            <div class="stats-due-text">
-              <p class="stats-due-title">überfällig</p>
-              <p class="stats-due-sub">aus den letzten Tagen liegen geblieben</p>
-            </div>
-            <span class="stats-due-num" id="stats-overdue-num">0</span>
-          </div>
-          <div class="stats-due-row">
-            <div class="stats-due-icon primary"><span class="material-symbols-outlined" style="font-size:20px;">schedule</span></div>
-            <div class="stats-due-text">
-              <p class="stats-due-title">für heute</p>
-              <p class="stats-due-sub">planmäßig laut Intervall fällig</p>
-            </div>
-            <span class="stats-due-num" id="stats-today-num">0</span>
-          </div>
-          <div class="stats-card-footer">
-            <button class="stats-cta-secondary" id="stats-recall-list-cta" title="Als Liste durchgehen statt Einzelkarte">
-              <span class="material-symbols-outlined" style="font-size:14px;">list</span>
-              Als Liste durchgehen
-            </button>
-            <button class="stats-cta-btn" id="stats-recall-cta">
-              <span class="material-symbols-outlined" style="font-size:16px;">play_arrow</span>
-              Fokus-Session starten
-            </button>
-          </div>
-        </div>
-
-        <!-- Aktuell in Einführung — zeigt die 5 Pool-Karten + Backlog-Hinweis -->
-        <div class="stats-card" id="stats-intro-card">
-          <div class="stats-card-header">
-            <h2>Aktuell in Einführung</h2>
-            <span class="stats-card-sub" id="stats-intro-sub">—</span>
-          </div>
-          <div class="stats-intro-list" id="stats-intro-list"></div>
-          <div class="stats-card-footer">
-            <button class="stats-cta-btn" id="stats-intro-cta">
-              <span class="material-symbols-outlined" style="font-size:16px;">play_arrow</span>
-              Einführung starten
-            </button>
-          </div>
-        </div>
+        <!-- Heute-fällig + Einführung-Pool + Szenen-Praxis-CTAs sind seit
+             Mai 2026 aufs Dashboard gewandert (Heute-Aktionsblock). Hier
+             bleibt nur die reine Rückschau: Streak-Bar, Heatmap, Insel-Grid. -->
 
         <!-- Heatmap -->
         <h3 class="stats-section-title">Aktivität · letzte 30 Tage</h3>
@@ -1245,44 +1272,6 @@
               <span class="stats-legend-scale" id="stats-legend-scale"></span>
               mehr</span>
             <span>heute</span>
-          </div>
-        </div>
-
-        <!-- Szenen-Praxis (v1) -->
-        <div class="stats-card" id="stats-scenes-card" style="display:none;">
-          <div class="stats-card-header">
-            <h2>Szenen-Praxis</h2>
-            <span class="stats-card-sub" id="stats-scenes-sub">—</span>
-          </div>
-          <div class="stats-due-row">
-            <div class="stats-due-icon primary"><span class="material-symbols-outlined" style="font-size:20px;">forum</span></div>
-            <div class="stats-due-text">
-              <p class="stats-due-title">aktive Szenen</p>
-              <p class="stats-due-sub">draft + active in deinem Pool</p>
-            </div>
-            <span class="stats-due-num" id="stats-scenes-active-num">0</span>
-          </div>
-          <div class="stats-due-row">
-            <div class="stats-due-icon warning"><span class="material-symbols-outlined" style="font-size:20px;">play_arrow</span></div>
-            <div class="stats-due-text">
-              <p class="stats-due-title">heute geübt</p>
-              <p class="stats-due-sub">Szenen-Runs heute</p>
-            </div>
-            <span class="stats-due-num" id="stats-scenes-today-num">0</span>
-          </div>
-          <div class="stats-due-row">
-            <div class="stats-due-icon" style="background:var(--learned-soft); color:var(--learned);"><span class="material-symbols-outlined" style="font-size:20px;">check_circle</span></div>
-            <div class="stats-due-text">
-              <p class="stats-due-title">beherrscht</p>
-              <p class="stats-due-sub">>=10 Runs + alle self gelernt</p>
-            </div>
-            <span class="stats-due-num" id="stats-scenes-mastered-num">0</span>
-          </div>
-          <div class="stats-card-footer">
-            <button class="stats-cta-btn" id="stats-scenes-cta">
-              <span class="material-symbols-outlined" style="font-size:16px;">forum</span>
-              Zu den Szenen
-            </button>
           </div>
         </div>
 

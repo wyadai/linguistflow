@@ -2500,12 +2500,149 @@ function renderAspirational() {
   }
 }
 
+// ---- "Heute üben"-Aktionsblock (Dashboard) -----------------------------
+// Drei Action-Cards (Recall · Einführung · Szenen) als direkter Einstieg in
+// die jeweiligen Übe-Modi. Counter werden aus den existierenden Helpern
+// (recallQueue/dueCount, introPoolCount, state.scenes) bezogen — keine neue
+// State-Logik, nur eine Render-Funktion.
+function renderTodayActions() {
+  // ----- Recall -----
+  const recallSubEl = document.getElementById("today-action-recall-sub");
+  const recallCountEl = document.getElementById("today-action-recall-count");
+  const recallCard = document.getElementById("today-action-recall");
+  if (recallCard) {
+    // Heute fällig vs. überfällig — sauber getrennt, damit der User sieht ob
+    // er "auf Kurs" ist oder Liegengebliebenes nachholt.
+    const todayDate = (typeof isoToday === "function") ? isoToday() : new Date().toISOString().slice(0, 10);
+    let overdue = 0, dueToday = 0;
+    for (const s of allSentences()) {
+      if (s.archived || s.pending) continue;
+      if (typeof stageOf === "function" && stageOf(s.id) !== "active") continue;
+      const cs = state.cardState && state.cardState[s.id];
+      if (!cs || !cs.due_at) continue;
+      if (cs.due_at < todayDate) overdue++;
+      else if (cs.due_at === todayDate) dueToday++;
+    }
+    const total = overdue + dueToday;
+    if (recallSubEl) {
+      if (total === 0) {
+        recallSubEl.textContent = "heute nichts fällig · Smart-Fallback wartet";
+      } else if (overdue > 0 && dueToday > 0) {
+        recallSubEl.textContent = overdue + " überfällig · " + dueToday + " heute fällig";
+      } else if (overdue > 0) {
+        recallSubEl.textContent = overdue + " überfällig — jetzt nachholen";
+      } else {
+        recallSubEl.textContent = dueToday + " heute fällig laut SRS";
+      }
+    }
+    if (recallCountEl) {
+      if (total > 0) {
+        recallCountEl.textContent = total;
+        recallCountEl.style.display = "";
+      } else {
+        recallCountEl.style.display = "none";
+      }
+    }
+    // Card nicht disablen wenn 0 fällig — Smart-Fallback in recallQueue() gibt
+    // dem User trotzdem etwas zum Üben (siehe CLAUDE.md SRS Phase A).
+    recallCard.disabled = false;
+  }
+
+  // ----- Einführung -----
+  const introSubEl = document.getElementById("today-action-intro-sub");
+  const introCountEl = document.getElementById("today-action-intro-count");
+  const introCard = document.getElementById("today-action-intro");
+  if (introCard) {
+    let backlog = 0, inIntro = 0;
+    for (const s of allSentences()) {
+      if (s.archived || s.pending || !s.es) continue;
+      if (typeof stageOf !== "function") continue;
+      const st = stageOf(s.id);
+      if (st === "backlog") backlog++;
+      else if (st === "intro") inIntro++;
+    }
+    const total = backlog + inIntro;
+    if (introSubEl) {
+      if (total === 0) {
+        introSubEl.textContent = "keine Karten in Einführung";
+      } else if (backlog > 0 && inIntro > 0) {
+        introSubEl.textContent = inIntro + " im Pool · " + backlog + " warten";
+      } else if (inIntro > 0) {
+        introSubEl.textContent = inIntro + " im Pool · weitermachen";
+      } else {
+        introSubEl.textContent = backlog + " Karten warten im Backlog";
+      }
+    }
+    if (introCountEl) {
+      if (total > 0) {
+        introCountEl.textContent = total;
+        introCountEl.style.display = "";
+      } else {
+        introCountEl.style.display = "none";
+      }
+    }
+    // Disablen wenn nichts da — sonst klickt der User ins Leere.
+    introCard.disabled = total === 0;
+  }
+
+  // ----- Karten-Browser-Meta (Akkordeon-Summary) -----
+  // Kleine Orientierung "X Sätze · davon Y aktiv", damit der User beim Blick
+  // auf das eingeklappte Akkordeon weiß, was dahinter liegt.
+  const browseMetaEl = document.getElementById("cards-browser-meta");
+  if (browseMetaEl) {
+    let total = 0, active = 0;
+    for (const s of allSentences()) {
+      if (s.archived || s.pending) continue;
+      total++;
+      if (typeof stageOf === "function" && stageOf(s.id) === "active") active++;
+    }
+    browseMetaEl.textContent = total + " Sätze · " + active + " aktiv";
+  }
+
+  // ----- Szenen -----
+  const scenesSubEl = document.getElementById("today-action-scenes-sub");
+  const scenesCountEl = document.getElementById("today-action-scenes-count");
+  const scenesCard = document.getElementById("today-action-scenes");
+  if (scenesCard) {
+    const scenes = (state.scenes || []);
+    if (scenes.length === 0) {
+      // Hide komplett — Szenen sind ein Opt-in-Feature, leer nur visueller Lärm.
+      scenesCard.style.display = "none";
+    } else {
+      scenesCard.style.display = "";
+      const active = scenes.filter(function (sc) {
+        return sc.status === "draft" || sc.status === "active";
+      });
+      const today = (typeof isoToday === "function") ? isoToday() : new Date().toISOString().slice(0, 10);
+      const runsToday = (state.stats && state.stats.daily && state.stats.daily[today] && state.stats.daily[today].scene_runs) || 0;
+      if (scenesSubEl) {
+        if (active.length === 0) {
+          scenesSubEl.textContent = "alle Szenen beherrscht · Übersicht öffnen";
+        } else if (runsToday > 0) {
+          scenesSubEl.textContent = active.length + " aktiv · heute " + runsToday + "× geübt";
+        } else {
+          scenesSubEl.textContent = active.length + " aktiv · noch nicht geübt heute";
+        }
+      }
+      if (scenesCountEl) {
+        if (active.length > 0) {
+          scenesCountEl.textContent = active.length;
+          scenesCountEl.style.display = "";
+        } else {
+          scenesCountEl.style.display = "none";
+        }
+      }
+    }
+  }
+}
+
 // ---- Master-Render -----------------------------------------------------
 function renderEngagement() {
   renderWhyAnchor();
   renderHeroButton();
   renderStreakChain();
   renderAspirational();
+  renderTodayActions();
 }
 
 // ---- Wiring -----------------------------------------------------------
@@ -2574,10 +2711,85 @@ function wireEngagement() {
     const lb = document.getElementById("listen-mode-btn");
     if (lb && state.mode !== "listen") lb.click();
     if (typeof applyFilter === "function") applyFilter();
+    // Aspirational scrollt zu den Karten — also Akkordeon aufmachen, damit
+    // die gefilterten Karten überhaupt sichtbar sind.
+    if (typeof openCardsBrowser === "function") openCardsBrowser();
     const cardsEl = document.getElementById("cards");
     if (cardsEl && cardsEl.scrollIntoView) cardsEl.scrollIntoView({ behavior: "smooth", block: "start" });
     showToast(ids.length + " Sätze auf 2★ gefiltert — leg los.", 3000);
   };
+
+  // "Heute üben": drei Action-Cards → Recall / Einführung / Szenen.
+  // Logik gespiegelt aus den (gleich entfernten) Stats-CTAs — wir starten den
+  // jeweiligen Modus direkt ohne Setup-Zwischenstation.
+  const todayRecallBtn = document.getElementById("today-action-recall");
+  if (todayRecallBtn) todayRecallBtn.onclick = function () {
+    // Fokus-Session konfigurieren auf "alle Stufen, alle Kategorien, alle
+    // Karten, zufällig" — focusEligibleSentences() filtert via recallQueue()
+    // dann auf heute-fällige + Smart Fallback.
+    if (typeof focus !== "undefined") {
+      focus.cats = new Set();
+      focus.ratings = new Set();
+      focus.count = "all";
+      focus.order = "random";
+      if (typeof buildFocusCatPicker === "function") buildFocusCatPicker();
+      if (typeof buildFocusRatingPicker === "function") buildFocusRatingPicker();
+      if (typeof focusCountPickerEl !== "undefined" && focusCountPickerEl) {
+        focusCountPickerEl.querySelectorAll(".focus-count-chip").forEach(function (b) {
+          b.classList.toggle("active", b.dataset.count === "all");
+        });
+      }
+      if (typeof focusOrderPickerEl !== "undefined" && focusOrderPickerEl) {
+        focusOrderPickerEl.querySelectorAll(".focus-order-chip").forEach(function (b) {
+          b.classList.toggle("active", b.dataset.order === "random");
+        });
+      }
+    }
+    if (typeof setFocusModeActive === "function") setFocusModeActive();
+    else { const fb = document.getElementById("focus-mode-btn"); if (fb) fb.click(); }
+    if (typeof startFocusSession === "function") startFocusSession();
+  };
+  const todayIntroBtn = document.getElementById("today-action-intro");
+  if (todayIntroBtn) todayIntroBtn.onclick = function () {
+    if (todayIntroBtn.disabled) return;
+    const ib = document.getElementById("intro-mode-btn");
+    if (ib && !ib.disabled) ib.click();
+  };
+  const todayScenesBtn = document.getElementById("today-action-scenes");
+  if (todayScenesBtn) todayScenesBtn.onclick = function () {
+    if (typeof openScenesPage === "function") openScenesPage();
+  };
+
+  // ===== "Karten durchstöbern"-Akkordeon: Boot-State + Persistenz =====
+  // Default zu im Listen-Modus; localStorage merkt sich die letzte Wahl.
+  // Recall-Mode öffnet das Akkordeon programmatisch (siehe weiter unten,
+  // wo recallBtn.onclick erweitert wird) — diese Programmatik schreibt
+  // nicht zurück in localStorage, damit der User-Default erhalten bleibt.
+  const cardsBrowserEl = document.getElementById("cards-browser");
+  if (cardsBrowserEl) {
+    const saved = localStorage.getItem("hl_browse_open");
+    cardsBrowserEl.open = saved === "1";
+    // Flag um programmatische open/close-Aufrufe von User-Klicks zu trennen.
+    let _suppressBrowsePersist = false;
+    cardsBrowserEl.addEventListener("toggle", function () {
+      if (_suppressBrowsePersist) return;
+      localStorage.setItem("hl_browse_open", cardsBrowserEl.open ? "1" : "0");
+    });
+    // Expose Helper, damit andere Click-Handler (Recall, Aspirational, Stats-
+    // CTA) das Akkordeon kontrolliert öffnen können ohne User-Default zu
+    // überschreiben.
+    window.openCardsBrowser = function () {
+      if (!cardsBrowserEl.open) {
+        _suppressBrowsePersist = true;
+        cardsBrowserEl.open = true;
+        // Das toggle-Event ist ein "queued task" — feuert nach dem aktuellen
+        // Call-Stack. setTimeout(0) reiht die Flag-Rücksetzung in dieselbe
+        // Queue ein, garantiert FIFO nach dem Toggle-Event. Sonst würde der
+        // User-Default versehentlich überschrieben.
+        setTimeout(function () { _suppressBrowsePersist = false; }, 0);
+      }
+    };
+  }
 
   // Initial-Render
   try { renderEngagement(); } catch (e) { console.warn("[engagement] initial render failed", e); }
@@ -2675,6 +2887,10 @@ recallBtn.onclick = function () {
   state.revealed.clear();
   // SRS-Queue laden statt der normalen Karten-Liste
   applyFilter();
+  // Karten-Akkordeon programmatisch öffnen — sonst sind die Recall-Karten im
+  // eingeklappten Dashboard-Browser nicht sichtbar. openCardsBrowser persistiert
+  // den User-Default NICHT (siehe wireEngagement), nur das Akkordeon aktuell auf.
+  if (typeof openCardsBrowser === "function") openCardsBrowser();
   const n = dueCount();
   if (n === 0) {
     modeHint.textContent = "Keine Karten heute fällig — wir zeigen die nächst-fälligen (Smart Fallback). Tab zum Aufdecken.";
@@ -3282,12 +3498,12 @@ const statsBackBtn = document.getElementById("stats-back-btn");
 const statsStreakValueEl = document.getElementById("stats-streak-value");
 const statsPlaysTodayEl = document.getElementById("stats-plays-today");
 const statsLearnedEl = document.getElementById("stats-learned");
-const statsOverdueNumEl = document.getElementById("stats-overdue-num");
-const statsTodayNumEl = document.getElementById("stats-today-num");
-const statsRecallCtaBtn = document.getElementById("stats-recall-cta");
 const statsHeatmapEl = document.getElementById("stats-heatmap");
 const statsLegendScaleEl = document.getElementById("stats-legend-scale");
 const statsInselnGridEl = document.getElementById("stats-inseln-grid");
+// Note: Heute-fällig + Einführungs-Pool + Szenen-Praxis-CTAs sind aufs Dashboard
+// gewandert (Mai 2026, "Heute üben"-Block in index.html + renderTodayActions()).
+// Die zugehörigen const-Refs / Render-Blöcke wurden entfernt.
 
 // 5-stufige Heatmap-Skala (heller → dunkler). Erst surface-low, dann
 // drei Blau-Stufen, dann --primary (slate). Mirrored im Legend-Marker.
@@ -3327,86 +3543,6 @@ function renderStatsPage() {
   if (statsLearnedEl) {
     const total = allSentences().filter(function (s) { return !s.archived && stageOf(s.id) === "active"; }).length;
     statsLearnedEl.textContent = learned + " / " + total;
-  }
-
-  // === Heute fällig ===
-  const todayDate = isoToday();
-  let overdue = 0;
-  let dueToday = 0;
-  for (const s of allSentences()) {
-    if (s.archived || s.pending) continue;
-    if (stageOf(s.id) !== "active") continue;
-    const cs = state.cardState[s.id];
-    if (!cs || !cs.due_at) continue; // unbewertete Karten zählen nicht in den Counter
-    if (cs.due_at < todayDate) overdue++;
-    else if (cs.due_at === todayDate) dueToday++;
-  }
-  if (statsOverdueNumEl) statsOverdueNumEl.textContent = overdue;
-  if (statsTodayNumEl) statsTodayNumEl.textContent = dueToday;
-
-  // === Aktuell in Einführung ===
-  const introListEl = document.getElementById("stats-intro-list");
-  const introSubEl = document.getElementById("stats-intro-sub");
-  if (introListEl) {
-    introListEl.innerHTML = "";
-    // Pool-Karten: stage === "intro" (intro_count 1-4)
-    const poolCards = allSentences().filter(function (s) {
-      if (s.archived || s.pending || !s.es) return false;
-      return stageOf(s.id) === "intro";
-    });
-    // Sortiere nach intro_count desc (reifste zuerst, wie in der Session)
-    poolCards.sort(function (a, b) {
-      return getIntroCount(b.id) - getIntroCount(a.id);
-    });
-
-    // Backlog-Anzahl für den Sub-Header
-    let backlogCount = 0;
-    for (const s of allSentences()) {
-      if (s.archived || s.pending || !s.es) continue;
-      if (stageOf(s.id) === "backlog") backlogCount++;
-    }
-    if (introSubEl) {
-      const parts = [];
-      parts.push(poolCards.length + " im Pool");
-      if (backlogCount > 0) parts.push(backlogCount + " warten im Backlog");
-      introSubEl.textContent = parts.join(" · ");
-    }
-
-    if (poolCards.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "stats-intro-empty";
-      empty.textContent = backlogCount > 0
-        ? "Pool leer — starte Einführung, dann werden 5 Karten aus dem Backlog geladen."
-        : "Keine Karten in Einführung.";
-      introListEl.appendChild(empty);
-    } else {
-      for (const s of poolCards.slice(0, 5)) {
-        const count = getIntroCount(s.id);
-        const row = document.createElement("div");
-        row.className = "stats-intro-row";
-        const text = document.createElement("div");
-        text.className = "stats-intro-text";
-        const de = document.createElement("div");
-        de.className = "stats-intro-de";
-        de.textContent = s.de;
-        const es = document.createElement("div");
-        es.className = "stats-intro-es";
-        es.textContent = s.es;
-        text.appendChild(de);
-        text.appendChild(es);
-        row.appendChild(text);
-        const dots = document.createElement("div");
-        dots.className = "stats-intro-dots";
-        dots.title = count + " / 5 Wiederholungen";
-        for (let i = 0; i < 5; i++) {
-          const dot = document.createElement("span");
-          dot.className = "stats-intro-dot" + (i < count ? " filled" : "");
-          dots.appendChild(dot);
-        }
-        row.appendChild(dots);
-        introListEl.appendChild(row);
-      }
-    }
   }
 
   // === Heatmap (30 Tage) ===
@@ -3483,90 +3619,14 @@ function renderStatsPage() {
     }
   }
 
-  // === Szenen-Praxis (v1) ===
-  // Nur anzeigen, wenn der User überhaupt Szenen hat — sonst ist die Card
-  // visueller Lärm.
-  const scenesCard = document.getElementById("stats-scenes-card");
-  if (scenesCard) {
-    if (!state.scenes || state.scenes.length === 0) {
-      scenesCard.style.display = "none";
-    } else {
-      scenesCard.style.display = "";
-      const active = state.scenes.filter(function (sc) {
-        return sc.status === "active" || sc.status === "draft";
-      }).length;
-      const mastered = state.scenes.filter(function (sc) { return sc.status === "mastered"; }).length;
-      const runsToday = (state.stats.daily && state.stats.daily[isoToday()] && state.stats.daily[isoToday()].scene_runs) || 0;
-      const elActive = document.getElementById("stats-scenes-active-num");
-      const elToday = document.getElementById("stats-scenes-today-num");
-      const elMastered = document.getElementById("stats-scenes-mastered-num");
-      const elSub = document.getElementById("stats-scenes-sub");
-      if (elActive) elActive.textContent = active;
-      if (elToday) elToday.textContent = runsToday;
-      if (elMastered) elMastered.textContent = mastered;
-      if (elSub) elSub.textContent = state.scenes.length + " Szenen insgesamt";
-    }
-  }
+  // Heute-fällig + Einführungs-Pool + Szenen-Praxis-Render sind aufs Dashboard
+  // gewandert — siehe renderTodayActions() (in renderEngagement). Hier ist
+  // bewusst nichts mehr; Stats ist seither pure Rückschau.
 }
 
-// CTA: "Zu den Szenen" → Stats-Page zu, Szenen-Page auf
-const statsScenesCtaBtn = document.getElementById("stats-scenes-cta");
-if (statsScenesCtaBtn) statsScenesCtaBtn.onclick = function () {
-  closeStatsPage();
-  setTimeout(openScenesPage, 60);
-};
-
-// CTA: "Fokus-Session starten" → schließt Stats-Page und startet Fokus direkt
-// mit genau den SRS-fälligen Karten. Kein Setup-Screen dazwischen — der User
-// hat oben die Zahl "X heute fällig" gesehen und erwartet, dass die Session
-// jetzt genau diese Karten enthält. Konfig wird gesetzt auf "alle Stufen,
-// alle Kategorien, alle Karten, zufällig"; focusEligibleSentences() filtert
-// dann via recallQueue() auf die heute-fälligen + Smart Fallback.
-if (statsRecallCtaBtn) {
-  statsRecallCtaBtn.onclick = function () {
-    closeStatsPage();
-    if (typeof focus !== "undefined") {
-      focus.cats = new Set();
-      focus.ratings = new Set();   // empty = kein Rating-Filter (alle Stufen)
-      focus.count = "all";
-      focus.order = "random";
-      // Picker-UI synchronisieren, damit ein evtl. späterer Setup-Aufruf
-      // den gleichen Zustand zeigt (sonst Verwirrung).
-      if (typeof buildFocusCatPicker === "function") buildFocusCatPicker();
-      if (typeof buildFocusRatingPicker === "function") buildFocusRatingPicker();
-      if (focusCountPickerEl) focusCountPickerEl.querySelectorAll(".focus-count-chip").forEach(function (b) {
-        b.classList.toggle("active", b.dataset.count === "all");
-      });
-      if (focusOrderPickerEl) focusOrderPickerEl.querySelectorAll(".focus-order-chip").forEach(function (b) {
-        b.classList.toggle("active", b.dataset.order === "random");
-      });
-    }
-    // Fokus-Modus aktivieren + Session direkt starten (überspringt Setup-View).
-    if (typeof setFocusModeActive === "function") setFocusModeActive();
-    else if (focusBtn) focusBtn.click();
-    if (typeof startFocusSession === "function") startFocusSession();
-  };
-}
-
-// Secondary CTA: "Als Liste durchgehen" → öffnet den Active-Recall-List-View.
-// Der Modus hat keinen Sidebar-Eintrag mehr, ist aber per Stats erreichbar
-// für Power-User die lieber scrollen statt durch Einzelkarten zu klicken.
-const statsRecallListCtaBtn = document.getElementById("stats-recall-list-cta");
-if (statsRecallListCtaBtn) {
-  statsRecallListCtaBtn.onclick = function () {
-    closeStatsPage();
-    if (recallBtn) recallBtn.click();
-  };
-}
-
-// CTA der "Aktuell in Einführung"-Card: öffnet Einführungs-Session direkt
-const statsIntroCtaBtn = document.getElementById("stats-intro-cta");
-if (statsIntroCtaBtn) {
-  statsIntroCtaBtn.onclick = function () {
-    closeStatsPage();
-    if (introBtn && !introBtn.disabled) introBtn.click();
-  };
-}
+// CTA-Click-Handler für Heute-fällig / Einführung / Szenen sind ebenfalls auf
+// das Dashboard umgezogen (Today-Action-Cards in wireEngagement). Stats hat
+// keine Start-Buttons mehr.
 
 // Page open/close — gleiches Pattern wie Saetze
 let _modeBeforeStats = null;
@@ -3698,6 +3758,48 @@ function closeScenesPage() {
 }
 if (sideScenesLink) sideScenesLink.onclick = function () { openScenesPage(); };
 if (scenesBackBtn) scenesBackBtn.onclick = function () { closeScenesPage(); };
+
+// ===== Dashboard-Sidebar-Link =====
+// Dashboard ist der Default-State (kein body-Mode-Klasse). Der Link bringt
+// den User aus jedem beliebigen Page/Modus zurück auf die Main-View. Jede
+// Page hat ihre eigene close*-Funktion; Modes (focus/car/intro/scene-practice)
+// haben exit*-/end*-Funktionen. Wir rufen sie nacheinander auf, damit
+// Session-State sauber abgeräumt wird (Timer, audioEl pausieren, etc.).
+const sideDashboardLink = document.getElementById("side-dashboard-link");
+function goToDashboard() {
+  // Pages schließen (jede close-Funktion ist no-op wenn ihre body-Klasse fehlt,
+  // aber wir checken trotzdem damit wir keine ungewollten Side-Effekte triggern)
+  if (document.body.classList.contains("scene-detail") && typeof closeSceneDetailPage === "function") closeSceneDetailPage();
+  if (document.body.classList.contains("scenes") && typeof closeScenesPage === "function") closeScenesPage();
+  if (document.body.classList.contains("saetze") && typeof closeSaetzePage === "function") closeSaetzePage();
+  if (document.body.classList.contains("stats") && typeof closeStatsPage === "function") closeStatsPage();
+  if (document.body.classList.contains("settings") && typeof closeSettingsPage === "function") closeSettingsPage();
+  if (document.body.classList.contains("new-sentence") && typeof closeNewSentencePage === "function") closeNewSentencePage();
+
+  // Sessions/Modes beenden (jede exit-/end-Funktion macht Cleanup intern)
+  if (document.body.classList.contains("scene-practice") && scenePracticeCloseBtn) scenePracticeCloseBtn.click();
+  if (document.body.classList.contains("car") && typeof exitCarSession === "function") exitCarSession();
+  if (document.body.classList.contains("focus") && typeof endFocusSession === "function") endFocusSession("dashboard");
+  if (document.body.classList.contains("intro") && typeof endIntroSession === "function") endIntroSession();
+
+  // Belt-and-suspenders: residuale Body-Klassen entfernen, falls eine
+  // close-/exit-Funktion was übersieht (z.B. car-driving / car-night).
+  ["recall", "focus", "car", "intro", "scene-practice", "scene-import", "car-driving", "car-night"].forEach(function (c) {
+    document.body.classList.remove(c);
+  });
+
+  // Listen-Modus aktivieren (= Dashboard-Default). listenBtn.onclick setzt
+  // state.mode, blendet Recall-Translation ein und ruft applyFilter().
+  const lb = document.getElementById("listen-mode-btn");
+  if (lb) lb.click();
+
+  // Sidebar-Drawer auf Mobile schließen.
+  if (typeof closeSidePanel === "function") closeSidePanel();
+
+  // An den Anfang scrollen — sonst landet der User mitten in der Karten-Liste.
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+if (sideDashboardLink) sideDashboardLink.onclick = function () { goToDashboard(); };
 
 // Sidebar-Badge: Anzahl aktiver Szenen
 function updateScenesBadge() {

@@ -1999,7 +1999,10 @@ body.focus #side-focus-link,
 body.new-sentence #side-new-sentence-link,
 body.saetze #side-saetze-link,
 body.stats #side-stats-link,
-body.settings #side-settings-link {
+body.settings #side-settings-link,
+body.scenes #side-scenes-link,
+body.scene-detail #side-scenes-link,
+body:not(.recall):not(.focus):not(.car):not(.intro):not(.new-sentence):not(.saetze):not(.stats):not(.settings):not(.scenes):not(.scene-detail):not(.scene-practice) #side-dashboard-link {
   background: var(--surface-container);
   color: var(--primary);
 }
@@ -2010,7 +2013,10 @@ body.focus #side-focus-link .side-sum-icon,
 body.new-sentence #side-new-sentence-link .side-sum-icon,
 body.saetze #side-saetze-link .side-sum-icon,
 body.stats #side-stats-link .side-sum-icon,
-body.settings #side-settings-link .side-sum-icon { color: var(--primary); }
+body.settings #side-settings-link .side-sum-icon,
+body.scenes #side-scenes-link .side-sum-icon,
+body.scene-detail #side-scenes-link .side-sum-icon,
+body:not(.recall):not(.focus):not(.car):not(.intro):not(.new-sentence):not(.saetze):not(.stats):not(.settings):not(.scenes):not(.scene-detail):not(.scene-practice) #side-dashboard-link .side-sum-icon { color: var(--primary); }
 /* Badges innerhalb von side-section-link rechts-ankern (Counter für Praxis-Modi) */
 .side-section-link .side-badge { margin-left: auto; }
 
@@ -4332,7 +4338,230 @@ body.scene-detail .aspirational-card,
 body.scene-practice .why-anchor,
 body.scene-practice .hero-listen-btn,
 body.scene-practice .streak-chain,
-body.scene-practice .aspirational-card { display: none !important; }
+body.scene-practice .aspirational-card,
+body.scene-practice .today-actions { display: none !important; }
+
+/* "Heute üben"-Block mit den 3 Action-Cards muss in den gleichen Übungs-Views
+   versteckt sein wie der restliche Engagement-Layer — Dashboard + Stats only. */
+body.recall .today-actions,
+body.focus .today-actions,
+body.car .today-actions,
+body.intro .today-actions,
+body.new-sentence .today-actions,
+body.saetze .today-actions,
+body.settings .today-actions,
+body.scenes .today-actions,
+body.scene-detail .today-actions { display: none !important; }
+
+/* =====================================================================
+   "Heute üben" — Aktionsblock auf dem Dashboard
+   3 vertikal gestapelte Action-Cards: Recall · Einführung · Szenen.
+   Slate-Akzent (primary), Counter-Pill rechts, klickbar als Ganzes.
+   ===================================================================== */
+.today-actions {
+  margin: 0 0 16px 0;
+  padding: 14px 16px 12px 16px;
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.today-actions-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--secondary);
+}
+.today-actions-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--secondary);
+}
+.today-actions-hint {
+  font-size: 12px;
+  color: var(--outline);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  margin-left: auto;
+}
+.today-actions-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.today-action-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--surface-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background .15s ease, transform .08s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.today-action-card:hover {
+  background: var(--surface-container);
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+}
+.today-action-card:active { transform: translateY(1px); }
+.today-action-card:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.today-action-card:disabled:hover {
+  background: var(--surface-low);
+  border-color: var(--outline-variant);
+  box-shadow: none;
+}
+.today-action-icon {
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  flex-shrink: 0;
+  background: var(--primary);
+  color: var(--on-primary);
+}
+.today-action-icon.recall { background: var(--primary); }
+.today-action-icon.intro  { background: var(--warning); }
+.today-action-icon.scenes { background: var(--accent); }
+.today-action-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.today-action-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--on-surface);
+}
+.today-action-sub {
+  font-size: 12px;
+  color: var(--secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.today-action-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.today-action-card[data-action="intro"] .today-action-count {
+  background: var(--warning);
+  color: #fff;
+}
+.today-action-card[data-action="scenes"] .today-action-count {
+  background: var(--accent);
+  color: #fff;
+}
+.today-action-arrow {
+  color: var(--outline);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  transition: transform .15s ease, color .15s ease;
+}
+.today-action-card:hover .today-action-arrow {
+  color: var(--primary);
+  transform: translateX(2px);
+}
+
+/* =====================================================================
+   "Karten durchstöbern" — Akkordeon-Wrapper um Rating-Filter + Toolbar + #cards
+   Default zu im Listen-Modus (Dashboard fokussiert auf Aktion); öffnen-Zustand
+   persistiert in localStorage. Im Recall-Modus per JS automatisch geöffnet.
+   ===================================================================== */
+.cards-browser {
+  margin-top: 8px;
+}
+.cards-browser-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: background .15s ease, border-color .15s ease;
+}
+.cards-browser-summary::-webkit-details-marker { display: none; }
+.cards-browser-summary:hover {
+  background: var(--surface-low);
+  border-color: var(--primary);
+}
+.cards-browser-icon {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--surface-high);
+  color: var(--on-surface);
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.cards-browser-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--on-surface);
+}
+.cards-browser-meta {
+  font-size: 12px;
+  color: var(--secondary);
+  margin-left: auto;
+}
+.cards-browser-chevron {
+  color: var(--outline);
+  display: inline-flex;
+  align-items: center;
+  transition: transform .2s ease;
+  flex-shrink: 0;
+}
+.cards-browser[open] .cards-browser-chevron { transform: rotate(180deg); }
+.cards-browser[open] .cards-browser-summary {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom: none;
+}
+.cards-browser-body {
+  padding: 12px 0 4px 0;
+}
+/* In Recall-/Focus-/Auto-/Intro-/Scene-Modi soll der Wrapper visuell verschwinden
+   (kein Border, kein Padding), weil dann die jeweilige Mode-UI das Layout dominiert.
+   Recall lebt aber WEITER im #cards-Element, also Inhalt nicht verstecken — nur die
+   Akkordeon-Chrome. */
+body.recall .cards-browser-summary,
+body.focus .cards-browser-summary,
+body.car .cards-browser-summary,
+body.intro .cards-browser-summary,
+body.scene-practice .cards-browser-summary { display: none; }
+body.recall .cards-browser-body,
+body.focus .cards-browser-body,
+body.car .cards-browser-body,
+body.intro .cards-browser-body,
+body.scene-practice .cards-browser-body { padding: 0; }
 
 /* Mobile: kompakter Hero, kleinerer Chain */
 @media (max-width: 640px) {
@@ -4348,6 +4577,14 @@ body.scene-practice .aspirational-card { display: none !important; }
   .aspirational-title { font-size: 13px; }
   .aspirational-sub { font-size: 11px; }
   .why-anchor-text { font-size: 13px; }
+  .today-actions { padding: 12px 12px 10px 12px; }
+  .today-action-card { padding: 10px 12px; gap: 10px; }
+  .today-action-icon { width: 34px; height: 34px; }
+  .today-action-title { font-size: 14px; }
+  .today-action-sub { font-size: 11px; }
+  .today-actions-hint { display: none; }
+  .cards-browser-summary { padding: 10px 12px; }
+  .cards-browser-label { font-size: 13px; }
 }
 
 
