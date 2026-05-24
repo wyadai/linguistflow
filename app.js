@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v19-2026-05-24-shadow-sort";
+const APP_VERSION = "v20-2026-05-24-car-cleanup";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -6586,24 +6586,6 @@ const car = {
   _lastSrcId: null,
 };
 
-// Diagnose-Log (Mai 2026): zeigt die letzten ~12 Car-Mode-Audio-Events im
-// car-debug-log-Div an. Hilft beim Diagnose von Background-Audio-Problemen
-// ohne USB-DevTools. carLog() wird in playCarCurrent/carAdvance/ended/etc.
-// aufgerufen.
-const _carLogLines = [];
-function carLog(msg) {
-  const t = new Date();
-  const hh = String(t.getHours()).padStart(2, "0");
-  const mm = String(t.getMinutes()).padStart(2, "0");
-  const ss = String(t.getSeconds()).padStart(2, "0");
-  const ms = String(t.getMilliseconds()).padStart(3, "0");
-  const visStr = (typeof document !== "undefined" && document.hidden) ? "BG" : "FG";
-  _carLogLines.push(`${hh}:${mm}:${ss}.${ms} [${visStr}] ${msg}`);
-  if (_carLogLines.length > 14) _carLogLines.shift();
-  const el = document.getElementById("car-debug-log");
-  if (el) el.textContent = _carLogLines.join("\n");
-}
-
 // Zweites Audio-Element für Double-Buffering. Wird lazy beim ersten
 // startCarSession() angelegt und in den DOM gehängt. Hidden, denselben
 // preload="auto"-Mode wie das Haupt-Element.
@@ -6615,13 +6597,9 @@ function ensureCarBuffers() {
   audioElB.style.display = "none";
   document.body.appendChild(audioElB);
   audioElB.addEventListener("ended", function () {
-    carLog("ended audioElB (active=" + car._activeBuf + ")");
     if (!car.active || car.paused) return;
     // Nur reagieren, wenn dieses Element gerade der AKTIVE Car-Buf ist.
-    if (!car._buffers || car._buffers[car._activeBuf] !== audioElB) {
-      carLog("  → ignored (not active buf)");
-      return;
-    }
+    if (!car._buffers || car._buffers[car._activeBuf] !== audioElB) return;
     carAdvance(false);
   });
   car._buffers = [audioEl, audioElB];
@@ -6678,8 +6656,7 @@ function startSilentKeepalive() {
   }
   const p = audioElSilent.play();
   if (p && typeof p.then === "function") {
-    p.then(function () { carLog("silentKeepalive playing"); })
-     .catch(function (err) { carLog("silentKeepalive FAIL: " + (err && err.name ? err.name : "?")); });
+    p.catch(function (err) { console.warn("silentKeepalive failed:", err); });
   }
 }
 function stopSilentKeepalive() {
@@ -6989,7 +6966,6 @@ async function releaseCarWakeLock() {
   car.wakeLock = null;
 }
 document.addEventListener("visibilitychange", function () {
-  if (car.active) carLog("visibilitychange hidden=" + document.hidden);
   if (car.active && !document.hidden && !car.wakeLock) requestCarWakeLock();
 });
 
@@ -7011,11 +6987,6 @@ function startCarSession() {
   // kann ob die neueste Build-Version live ist.
   const verEl = document.getElementById("car-version-badge");
   if (verEl) verEl.textContent = APP_VERSION;
-  // Diagnose-Log: frische Session = frisches Log.
-  _carLogLines.length = 0;
-  const dbgEl = document.getElementById("car-debug-log");
-  if (dbgEl) dbgEl.textContent = "";
-  carLog("startCarSession queue=" + car.queue.length + " reps=" + car.repeats);
   document.body.classList.add("car-driving");
   if (car.night) document.body.classList.add("car-night");
   window.scrollTo(0, 0);
@@ -7051,10 +7022,8 @@ function startCarSession() {
             try { audioElB.pause(); } catch (e) {}
             try { audioElB.currentTime = 0; } catch (e) {}
             audioElB.muted = false;
-            carLog("audioElB primed OK rdy=" + audioElB.readyState);
-          }).catch(function (err) {
+          }).catch(function () {
             audioElB.muted = false;
-            carLog("audioElB prime FAIL: " + (err && err.name ? err.name : "?"));
           });
         }
       } catch (e) {
@@ -7067,7 +7036,6 @@ function startCarSession() {
 }
 
 function exitCarSession() {
-  carLog("exitCarSession");
   car.active = false;
   car.paused = false;
   car._lastSrcId = null;
@@ -7139,7 +7107,6 @@ function playCarCurrent() {
   const activeBuf = carActiveBuf();
   const otherHasIt = car._preloadedId === id && otherBuf && otherBuf.src && otherBuf.readyState >= 2;
   let bufToPlay;
-  let pathUsed;
   if (otherHasIt) {
     // Pfad (1): swap
     try { activeBuf.pause(); } catch (e) { /* ignore */ }
@@ -7147,23 +7114,18 @@ function playCarCurrent() {
     bufToPlay = carActiveBuf();
     try { bufToPlay.currentTime = 0; } catch (e) { /* ignore */ }
     car._preloadedId = null;
-    pathUsed = "(1) swap→" + car._activeBuf;
   } else if (car._lastSrcId === id && activeBuf.src) {
     // Pfad (2): Shadow-Repeat ohne Preload-Hit — rewind und play
     bufToPlay = activeBuf;
     try { bufToPlay.currentTime = 0; } catch (e) { /* ignore */ }
-    pathUsed = "(2) rewind buf" + car._activeBuf + " (otherRdy=" + (otherBuf ? otherBuf.readyState : "?") + ")";
   } else {
     // Pfad (3): Fallback — vollständiger src-Reset
     bufToPlay = activeBuf;
     bufToPlay.src = src;
-    pathUsed = "(3) src-reset buf" + car._activeBuf;
   }
   car._lastSrcId = id;
   bufToPlay.playbackRate = 1.0;
-  carLog("play id=" + id + " path=" + pathUsed);
   bufToPlay.play().then(function () {
-    carLog("  play OK id=" + id + " dur=" + (bufToPlay.duration ? bufToPlay.duration.toFixed(1) : "?"));
     carPauseIcon.style.display = "block";
     carPlayIcon.style.display = "none";
     carStatusEl.textContent = "Spielt ab";
@@ -7193,7 +7155,6 @@ function playCarCurrent() {
     if (typeof preloadNextCarAudio === "function") preloadNextCarAudio();
   }).catch(function (err) {
     console.error("Car play failed", err);
-    carLog("  play FAIL: " + (err && err.name ? err.name : "?") + " " + (err && err.message ? err.message.slice(0, 50) : ""));
     carStatusEl.textContent = "Audio-Fehler";
     car.repCount = car.repeats - 1;
     carAdvance(true);
@@ -7202,7 +7163,6 @@ function playCarCurrent() {
 
 function carPause() {
   if (!car.active) return;
-  carLog("carPause called");
   car.paused = true;
   // Double-Buffer: nur den AKTIVEN Buf pausieren. Der andere ist vorgeladen
   // aber nicht abgespielt — kein pause() nötig.
@@ -7215,7 +7175,6 @@ function carPause() {
 
 function carResume() {
   if (!car.active) return;
-  carLog("carResume called");
   car.paused = false;
   const buf = carActiveBuf();
   if (buf.src && buf.paused && buf.currentTime > 0 && buf.currentTime < (buf.duration || Infinity)) {
@@ -7231,7 +7190,6 @@ function carResume() {
 
 function carAdvance(skipPause) {
   if (!car.active) return;
-  carLog("carAdvance skip=" + skipPause + " rep=" + car.repCount + "→" + (car.repCount+1) + "/" + car.repeats);
   car.repCount++;
 
   // Android-Flicker-Fix: Solange wir zwischen Sätzen sind (Shadow-Pause oder
@@ -7321,14 +7279,10 @@ function carSkipPrev() {
 }
 
 audioEl.addEventListener("ended", function () {
-  if (state.mode === "car") carLog("ended audioEl (active=" + car._activeBuf + ")");
   if (!car.active || car.paused) return;
   // Double-Buffer: nur reagieren, wenn audioEl der AKTIVE Car-Buf ist.
   // (audioElB hat seinen eigenen ended-Handler in ensureCarBuffers().)
-  if (car._buffers && car._buffers[car._activeBuf] !== audioEl) {
-    carLog("  → ignored (not active buf)");
-    return;
-  }
+  if (car._buffers && car._buffers[car._activeBuf] !== audioEl) return;
   carAdvance(false);
 });
 
