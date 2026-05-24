@@ -1,3 +1,7 @@
+// App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
+// damit auf dem Handy verifizierbar ist welche Build-Version live ist.
+const APP_VERSION = "v15-2026-05-22-car-prime-buf";
+
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN4YmdxdHZsaHdmeW5mcWRkeHdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4Nzk2NzMsImV4cCI6MjA5NDQ1NTY3M30.IIJLdLMZF80Sdrdv9zr90qxRyPalkaXNbwQu1T_NAsQ";
@@ -5987,6 +5991,11 @@ function setupMediaSession() {
   if (!("mediaSession" in navigator)) return;
   try {
     navigator.mediaSession.setActionHandler("play", function () {
+      // Car-Mode hat eigene Buffer/Logik — niemals den globalen Player anfassen.
+      if (typeof car !== "undefined" && car && car.active) {
+        carResume();
+        return;
+      }
       // Resume if we have an existing track, otherwise start the current one
       if (audioEl && audioEl.src && audioEl.paused) {
         audioEl.play().then(function () {
@@ -5998,9 +6007,18 @@ function setupMediaSession() {
         play();
       }
     });
-    navigator.mediaSession.setActionHandler("pause", function () { pause(); });
-    navigator.mediaSession.setActionHandler("nexttrack", function () { next(); });
-    navigator.mediaSession.setActionHandler("previoustrack", function () { prev(); });
+    navigator.mediaSession.setActionHandler("pause", function () {
+      if (typeof car !== "undefined" && car && car.active) { carPause(); return; }
+      pause();
+    });
+    navigator.mediaSession.setActionHandler("nexttrack", function () {
+      if (typeof car !== "undefined" && car && car.active) { carSkipNext(); return; }
+      next();
+    });
+    navigator.mediaSession.setActionHandler("previoustrack", function () {
+      if (typeof car !== "undefined" && car && car.active) { carSkipPrev(); return; }
+      prev();
+    });
     // Explicitly disable seek (sentence-by-sentence, no scrubbing inside a clip)
     try { navigator.mediaSession.setActionHandler("seekto", null); } catch (e) {}
     try { navigator.mediaSession.setActionHandler("seekbackward", null); } catch (e) {}
@@ -6835,12 +6853,50 @@ function startCarSession() {
 
   carSetupEl.style.display = "none";
   carActiveEl.style.display = "flex";
+  // Version-Badge im Topbar setzen — damit Maurizio auf dem Handy sehen
+  // kann ob die neueste Build-Version live ist.
+  const verEl = document.getElementById("car-version-badge");
+  if (verEl) verEl.textContent = APP_VERSION;
   document.body.classList.add("car-driving");
   if (car.night) document.body.classList.add("car-night");
   window.scrollTo(0, 0);
 
   requestCarWakeLock();
   renderCarCard();
+
+  // Background-Audio-Fix (Mai 2026): audioElB im User-Gesture priming. Ohne
+  // diesen Schritt verweigert Android Chrome dem zweiten Audio-Element die
+  // Autoplay-Permission, weil es nie einen direkt User-initiierten play()-
+  // Aufruf gesehen hat. Beim ersten Swap im Hintergrund (auf audioElB)
+  // würde play() sonst still failen. Stumm und kurz reicht, um die
+  // Permission zu vergeben.
+  ensureCarBuffers();
+  if (audioElB) {
+    const firstS = getSentenceById(car.queue[0]);
+    const firstSrc = firstS ? audioSrcFor(firstS) : null;
+    if (firstSrc) {
+      try {
+        audioElB.muted = true;
+        audioElB.src = firstSrc;
+        // Mark als vorgeladen, damit Pfad (1) in playCarCurrent für den
+        // ersten Karten-Wechsel direkt swap-ready ist.
+        car._preloadedId = car.queue[0];
+        const primePromise = audioElB.play();
+        if (primePromise && typeof primePromise.then === "function") {
+          primePromise.then(function () {
+            try { audioElB.pause(); } catch (e) {}
+            try { audioElB.currentTime = 0; } catch (e) {}
+            audioElB.muted = false;
+          }).catch(function () {
+            audioElB.muted = false;
+          });
+        }
+      } catch (e) {
+        audioElB.muted = false;
+      }
+    }
+  }
+
   playCarCurrent();
 }
 
