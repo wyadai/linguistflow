@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v15-2026-05-22-car-prime-buf";
+const APP_VERSION = "v16-2026-05-22-car-silent-keepalive-debug";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -6580,6 +6580,24 @@ const car = {
   _lastSrcId: null,
 };
 
+// Diagnose-Log (Mai 2026): zeigt die letzten ~12 Car-Mode-Audio-Events im
+// car-debug-log-Div an. Hilft beim Diagnose von Background-Audio-Problemen
+// ohne USB-DevTools. carLog() wird in playCarCurrent/carAdvance/ended/etc.
+// aufgerufen.
+const _carLogLines = [];
+function carLog(msg) {
+  const t = new Date();
+  const hh = String(t.getHours()).padStart(2, "0");
+  const mm = String(t.getMinutes()).padStart(2, "0");
+  const ss = String(t.getSeconds()).padStart(2, "0");
+  const ms = String(t.getMilliseconds()).padStart(3, "0");
+  const visStr = (typeof document !== "undefined" && document.hidden) ? "BG" : "FG";
+  _carLogLines.push(`${hh}:${mm}:${ss}.${ms} [${visStr}] ${msg}`);
+  if (_carLogLines.length > 14) _carLogLines.shift();
+  const el = document.getElementById("car-debug-log");
+  if (el) el.textContent = _carLogLines.join("\n");
+}
+
 // Zweites Audio-Element für Double-Buffering. Wird lazy beim ersten
 // startCarSession() angelegt und in den DOM gehängt. Hidden, denselben
 // preload="auto"-Mode wie das Haupt-Element.
@@ -6591,13 +6609,74 @@ function ensureCarBuffers() {
   audioElB.style.display = "none";
   document.body.appendChild(audioElB);
   audioElB.addEventListener("ended", function () {
+    carLog("ended audioElB (active=" + car._activeBuf + ")");
     if (!car.active || car.paused) return;
     // Nur reagieren, wenn dieses Element gerade der AKTIVE Car-Buf ist.
-    if (!car._buffers || car._buffers[car._activeBuf] !== audioElB) return;
+    if (!car._buffers || car._buffers[car._activeBuf] !== audioElB) {
+      carLog("  → ignored (not active buf)");
+      return;
+    }
     carAdvance(false);
   });
   car._buffers = [audioEl, audioElB];
 }
+// Silent-Keepalive (Mai 2026, v16): drittes Audio-Element, das stille Loop
+// während der gesamten Car-Session abspielt. Hält die Audio-Session und den
+// „audible tab"-Status bei Android Chrome durchgehend aktiv — so kann die
+// Lücke zwischen Sätzen Chrome nicht dazu bringen, den Audio-Slot freizugeben.
+let audioElSilent = null;
+let _silentBlobUrl = null;
+function ensureSilentBlob() {
+  if (_silentBlobUrl) return _silentBlobUrl;
+  // 1-Sekunde silent WAV erzeugen (8kHz mono 16-bit PCM = ~16KB).
+  const sampleRate = 8000;
+  const numSamples = sampleRate;     // 1 second
+  const dataLength = numSamples * 2; // 16-bit
+  const buf = new ArrayBuffer(44 + dataLength);
+  const dv = new DataView(buf);
+  // RIFF header
+  dv.setUint8(0, 0x52); dv.setUint8(1, 0x49); dv.setUint8(2, 0x46); dv.setUint8(3, 0x46);  // "RIFF"
+  dv.setUint32(4, 36 + dataLength, true);
+  dv.setUint8(8, 0x57); dv.setUint8(9, 0x41); dv.setUint8(10, 0x56); dv.setUint8(11, 0x45); // "WAVE"
+  // fmt subchunk
+  dv.setUint8(12, 0x66); dv.setUint8(13, 0x6d); dv.setUint8(14, 0x74); dv.setUint8(15, 0x20); // "fmt "
+  dv.setUint32(16, 16, true);          // PCM chunk size
+  dv.setUint16(20, 1, true);           // PCM
+  dv.setUint16(22, 1, true);           // mono
+  dv.setUint32(24, sampleRate, true);
+  dv.setUint32(28, sampleRate * 2, true); // byte rate
+  dv.setUint16(32, 2, true);           // block align
+  dv.setUint16(34, 16, true);          // bits per sample
+  // data subchunk
+  dv.setUint8(36, 0x64); dv.setUint8(37, 0x61); dv.setUint8(38, 0x74); dv.setUint8(39, 0x61); // "data"
+  dv.setUint32(40, dataLength, true);
+  // Samples sind alle 0 (Silent), ArrayBuffer ist zero-initialized → keine Writes nötig
+  const blob = new Blob([buf], { type: "audio/wav" });
+  _silentBlobUrl = URL.createObjectURL(blob);
+  return _silentBlobUrl;
+}
+function startSilentKeepalive() {
+  if (audioElSilent && !audioElSilent.paused) return;
+  if (!audioElSilent) {
+    audioElSilent = document.createElement("audio");
+    audioElSilent.loop = true;
+    audioElSilent.preload = "auto";
+    audioElSilent.style.display = "none";
+    audioElSilent.src = ensureSilentBlob();
+    audioElSilent.volume = 0.0001;  // Praktisch unhörbar
+    document.body.appendChild(audioElSilent);
+  }
+  const p = audioElSilent.play();
+  if (p && typeof p.then === "function") {
+    p.then(function () { carLog("silentKeepalive playing"); })
+     .catch(function (err) { carLog("silentKeepalive FAIL: " + (err && err.name ? err.name : "?")); });
+  }
+}
+function stopSilentKeepalive() {
+  if (!audioElSilent) return;
+  try { audioElSilent.pause(); } catch (e) {}
+}
+
 function carActiveBuf() {
   return car._buffers ? car._buffers[car._activeBuf] : audioEl;
 }
@@ -6830,6 +6909,7 @@ async function releaseCarWakeLock() {
   car.wakeLock = null;
 }
 document.addEventListener("visibilitychange", function () {
+  if (car.active) carLog("visibilitychange hidden=" + document.hidden);
   if (car.active && !document.hidden && !car.wakeLock) requestCarWakeLock();
 });
 
@@ -6857,12 +6937,22 @@ function startCarSession() {
   // kann ob die neueste Build-Version live ist.
   const verEl = document.getElementById("car-version-badge");
   if (verEl) verEl.textContent = APP_VERSION;
+  // Diagnose-Log: frische Session = frisches Log.
+  _carLogLines.length = 0;
+  const dbgEl = document.getElementById("car-debug-log");
+  if (dbgEl) dbgEl.textContent = "";
+  carLog("startCarSession queue=" + car.queue.length + " reps=" + car.repeats);
   document.body.classList.add("car-driving");
   if (car.night) document.body.classList.add("car-night");
   window.scrollTo(0, 0);
 
   requestCarWakeLock();
   renderCarCard();
+
+  // Silent-Keepalive (v16): stille Loop starten, damit Chrome den Audio-
+  // Slot zwischen Sätzen nicht freigibt. Im User-Gesture (Start-Button-
+  // Klick) damit Autoplay-Permission gewährt wird.
+  startSilentKeepalive();
 
   // Background-Audio-Fix (Mai 2026): audioElB im User-Gesture priming. Ohne
   // diesen Schritt verweigert Android Chrome dem zweiten Audio-Element die
@@ -6887,8 +6977,10 @@ function startCarSession() {
             try { audioElB.pause(); } catch (e) {}
             try { audioElB.currentTime = 0; } catch (e) {}
             audioElB.muted = false;
-          }).catch(function () {
+            carLog("audioElB primed OK rdy=" + audioElB.readyState);
+          }).catch(function (err) {
             audioElB.muted = false;
+            carLog("audioElB prime FAIL: " + (err && err.name ? err.name : "?"));
           });
         }
       } catch (e) {
@@ -6901,6 +6993,7 @@ function startCarSession() {
 }
 
 function exitCarSession() {
+  carLog("exitCarSession");
   car.active = false;
   car.paused = false;
   car._lastSrcId = null;
@@ -6909,6 +7002,7 @@ function exitCarSession() {
   // Double-Buffer: beide Audio-Elemente pausieren beim Exit.
   try { audioEl.pause(); } catch (e) { /* ignore */ }
   if (audioElB) { try { audioElB.pause(); } catch (e) { /* ignore */ } }
+  stopSilentKeepalive();
   releaseCarWakeLock();
   carActiveEl.style.display = "none";
   carSetupEl.style.display = "block";
@@ -6971,6 +7065,7 @@ function playCarCurrent() {
   const activeBuf = carActiveBuf();
   const otherHasIt = car._preloadedId === id && otherBuf && otherBuf.src && otherBuf.readyState >= 2;
   let bufToPlay;
+  let pathUsed;
   if (otherHasIt) {
     // Pfad (1): swap
     try { activeBuf.pause(); } catch (e) { /* ignore */ }
@@ -6978,18 +7073,23 @@ function playCarCurrent() {
     bufToPlay = carActiveBuf();
     try { bufToPlay.currentTime = 0; } catch (e) { /* ignore */ }
     car._preloadedId = null;
+    pathUsed = "(1) swap→" + car._activeBuf;
   } else if (car._lastSrcId === id && activeBuf.src) {
     // Pfad (2): Shadow-Repeat ohne Preload-Hit — rewind und play
     bufToPlay = activeBuf;
     try { bufToPlay.currentTime = 0; } catch (e) { /* ignore */ }
+    pathUsed = "(2) rewind buf" + car._activeBuf + " (otherRdy=" + (otherBuf ? otherBuf.readyState : "?") + ")";
   } else {
     // Pfad (3): Fallback — vollständiger src-Reset
     bufToPlay = activeBuf;
     bufToPlay.src = src;
+    pathUsed = "(3) src-reset buf" + car._activeBuf;
   }
   car._lastSrcId = id;
   bufToPlay.playbackRate = 1.0;
+  carLog("play id=" + id + " path=" + pathUsed);
   bufToPlay.play().then(function () {
+    carLog("  play OK id=" + id + " dur=" + (bufToPlay.duration ? bufToPlay.duration.toFixed(1) : "?"));
     carPauseIcon.style.display = "block";
     carPlayIcon.style.display = "none";
     carStatusEl.textContent = "Spielt ab";
@@ -7019,6 +7119,7 @@ function playCarCurrent() {
     if (typeof preloadNextCarAudio === "function") preloadNextCarAudio();
   }).catch(function (err) {
     console.error("Car play failed", err);
+    carLog("  play FAIL: " + (err && err.name ? err.name : "?") + " " + (err && err.message ? err.message.slice(0, 50) : ""));
     carStatusEl.textContent = "Audio-Fehler";
     car.repCount = car.repeats - 1;
     carAdvance(true);
@@ -7027,6 +7128,7 @@ function playCarCurrent() {
 
 function carPause() {
   if (!car.active) return;
+  carLog("carPause called");
   car.paused = true;
   // Double-Buffer: nur den AKTIVEN Buf pausieren. Der andere ist vorgeladen
   // aber nicht abgespielt — kein pause() nötig.
@@ -7039,6 +7141,7 @@ function carPause() {
 
 function carResume() {
   if (!car.active) return;
+  carLog("carResume called");
   car.paused = false;
   const buf = carActiveBuf();
   if (buf.src && buf.paused && buf.currentTime > 0 && buf.currentTime < (buf.duration || Infinity)) {
@@ -7054,6 +7157,7 @@ function carResume() {
 
 function carAdvance(skipPause) {
   if (!car.active) return;
+  carLog("carAdvance skip=" + skipPause + " rep=" + car.repCount + "→" + (car.repCount+1) + "/" + car.repeats);
   car.repCount++;
 
   // Android-Flicker-Fix: Solange wir zwischen Sätzen sind (Shadow-Pause oder
@@ -7139,10 +7243,14 @@ function carSkipPrev() {
 }
 
 audioEl.addEventListener("ended", function () {
+  if (state.mode === "car") carLog("ended audioEl (active=" + car._activeBuf + ")");
   if (!car.active || car.paused) return;
   // Double-Buffer: nur reagieren, wenn audioEl der AKTIVE Car-Buf ist.
   // (audioElB hat seinen eigenen ended-Handler in ensureCarBuffers().)
-  if (car._buffers && car._buffers[car._activeBuf] !== audioEl) return;
+  if (car._buffers && car._buffers[car._activeBuf] !== audioEl) {
+    carLog("  → ignored (not active buf)");
+    return;
+  }
   carAdvance(false);
 });
 
