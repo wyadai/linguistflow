@@ -18,7 +18,7 @@
  * (e.g. https://<user>.github.io/<repo>/) without changes.
  */
 
-const VERSION = "lf-v16-2026-05-22-car-silent-keepalive-debug";
+const VERSION = "lf-v19-2026-05-24-shadow-sort";
 const SHELL_CACHE = "shell-" + VERSION;
 const AUDIO_CACHE = "audio-" + VERSION;
 

@@ -657,13 +657,18 @@
           </div>
 
           <div class="car-setup-block">
-            <div class="car-toggle-row">
-              <div>
-                <div class="car-toggle-label">Zufallsreihenfolge</div>
-                <div class="car-toggle-hint">Bei jedem Durchgang neu mischen</div>
-              </div>
-              <div class="car-toggle on" id="car-shuffle-toggle"></div>
+            <div class="car-setup-row-label">
+              <span class="car-setup-label">Reihenfolge</span>
             </div>
+            <div class="car-sort-picker" id="car-sort-picker">
+              <button class="car-sort-chip active" data-sort="random">Zufällig</button>
+              <button class="car-sort-chip" data-sort="newest">Neueste zuerst</button>
+              <button class="car-sort-chip" data-sort="oldest">Älteste zuerst</button>
+            </div>
+            <small class="car-setup-hint" id="car-sort-hint">Bei jedem Durchgang neu mischen.</small>
+          </div>
+
+          <div class="car-setup-block">
             <div class="car-toggle-row">
               <div>
                 <div class="car-toggle-label">Endlos-Loop</div>

@@ -3485,6 +3485,29 @@ body.car-driving .mode-buttons { display: none !important; }
   border-color: var(--primary);
 }
 
+.car-sort-picker {
+  display: flex; gap: 6px;
+}
+.car-sort-chip {
+  flex: 1;
+  padding: 8px 4px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-low);
+  color: var(--secondary);
+  font-family: inherit;
+  font-size: 12px; font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1.2;
+}
+.car-sort-chip:hover { background: var(--surface-high); color: var(--primary); }
+.car-sort-chip.active {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+
 .car-slider {
   width: 100%;
   margin: 0;

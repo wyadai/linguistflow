@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v16-2026-05-22-car-silent-keepalive-debug";
+const APP_VERSION = "v19-2026-05-24-shadow-sort";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -6552,7 +6552,13 @@ const car = {
   repeats: loadJSON("hl_car_repeats", 3),
   shadowPause: loadJSON("hl_car_shadow", 0.5),    // seconds of silence after each playback (shadowing gap)
   sentencePause: loadJSON("hl_car_gap", 1.0),     // seconds between sentences
-  shuffle: loadJSON("hl_car_shuffle", true),
+  // Reihenfolge: "random" (default) | "newest" | "oldest". Ersetzt das alte
+  // shuffle-Boolean (Mai 2026). "newest" sortiert User-Sätze nach created_at
+  // DESC und hängt die 84 Originale dahinter (ID ASC); "oldest" dreht das um.
+  // Loop-Verhalten: bei "random" wird bei jedem neuen Durchgang neu gemischt;
+  // bei "newest"/"oldest" bleibt die Reihenfolge stabil (so kommt das "neu
+  // zuerst" auch im 2./3./… Durchgang wieder).
+  sort: loadJSON("hl_car_sort", loadJSON("hl_car_shuffle", true) ? "random" : "oldest"),
   loop: loadJSON("hl_car_loop", true),
   night: loadJSON("hl_car_night", false),
   // Session state (runtime only)
@@ -6628,8 +6634,12 @@ let audioElSilent = null;
 let _silentBlobUrl = null;
 function ensureSilentBlob() {
   if (_silentBlobUrl) return _silentBlobUrl;
-  // 1-Sekunde silent WAV erzeugen (8kHz mono 16-bit PCM = ~16KB).
-  const sampleRate = 8000;
+  // 1-Sekunde silent WAV erzeugen — bei v16 stand das auf 8kHz mono, was Android
+  // dazu gebracht hat, die Audio-Session auf Voice-Channel zu legen (downsampled
+  // alle anderen Streams auf 8kHz → Sätze klangen gedämpft/unscharf). Ab v18
+  // 44.1kHz mono — matched typische MP3-Sample-Rates und zwingt Android auf den
+  // Media-Channel. 1 sec * 44100 * 2 Bytes = ~88KB Blob, akzeptabel.
+  const sampleRate = 44100;
   const numSamples = sampleRate;     // 1 second
   const dataLength = numSamples * 2; // 16-bit
   const buf = new ArrayBuffer(44 + dataLength);
@@ -6729,7 +6739,7 @@ function saveCarConfig() {
   saveJSON("hl_car_repeats", car.repeats);
   saveJSON("hl_car_shadow", car.shadowPause);
   saveJSON("hl_car_gap", car.sentencePause);
-  saveJSON("hl_car_shuffle", car.shuffle);
+  saveJSON("hl_car_sort", car.sort);
   saveJSON("hl_car_loop", car.loop);
   saveJSON("hl_car_night", car.night);
 }
@@ -6747,7 +6757,8 @@ const carShadowSliderEl = document.getElementById("car-shadow-slider");
 const carShadowValueEl = document.getElementById("car-shadow-value");
 const carGapSliderEl = document.getElementById("car-gap-slider");
 const carGapValueEl = document.getElementById("car-gap-value");
-const carShuffleToggleEl = document.getElementById("car-shuffle-toggle");
+const carSortPickerEl = document.getElementById("car-sort-picker");
+const carSortHintEl = document.getElementById("car-sort-hint");
 const carLoopToggleEl = document.getElementById("car-loop-toggle");
 const carNightToggleEl = document.getElementById("car-night-toggle");
 const carSetupSummaryEl = document.getElementById("car-setup-summary");
@@ -6844,13 +6855,34 @@ function wireCarSetup() {
     saveCarConfig();
   };
 
-  // Toggles
-  carShuffleToggleEl.classList.toggle("on", car.shuffle);
-  carShuffleToggleEl.onclick = function () {
-    car.shuffle = !car.shuffle;
-    carShuffleToggleEl.classList.toggle("on", car.shuffle);
-    saveCarConfig();
-  };
+  // Reihenfolge-Picker
+  function renderCarSortPicker() {
+    if (!carSortPickerEl) return;
+    const chips = carSortPickerEl.querySelectorAll(".car-sort-chip");
+    chips.forEach(function (chip) {
+      chip.classList.toggle("active", chip.getAttribute("data-sort") === car.sort);
+    });
+    if (carSortHintEl) {
+      const hints = {
+        random: "Bei jedem Durchgang neu mischen.",
+        newest: "Deine zuletzt hinzugefügten Sätze zuerst — Originale am Ende. Reihenfolge bleibt über Durchgänge stabil.",
+        oldest: "Originale zuerst, deine eigenen Sätze chronologisch danach. Reihenfolge bleibt über Durchgänge stabil.",
+      };
+      carSortHintEl.textContent = hints[car.sort] || hints.random;
+    }
+  }
+  renderCarSortPicker();
+  if (carSortPickerEl) {
+    carSortPickerEl.querySelectorAll(".car-sort-chip").forEach(function (chip) {
+      chip.onclick = function () {
+        const v = chip.getAttribute("data-sort");
+        if (!v || v === car.sort) return;
+        car.sort = v;
+        renderCarSortPicker();
+        saveCarConfig();
+      };
+    });
+  }
   carLoopToggleEl.classList.toggle("on", car.loop);
   carLoopToggleEl.onclick = function () {
     car.loop = !car.loop;
@@ -6883,6 +6915,54 @@ function carEligibleSentences() {
     }
     return true;
   });
+}
+
+// Sort-Helper für Car-Queue. sortKey ∈ {"random", "newest", "oldest"}.
+// - "random":  Fisher-Yates Shuffle.
+// - "newest":  User-Sätze (ID ≥ 85) zuerst, sortiert nach created_at DESC,
+//              fallback ID DESC. Originale (ID 1..84) danach in ID ASC.
+//              Begründung: Originale haben kein created_at und sind das
+//              "Fundament" — User-Sätze sind alles, was später dazukam.
+// - "oldest":  Spiegelbild von "newest" — Originale ID ASC zuerst, User-Sätze
+//              nach created_at ASC, fallback ID ASC danach.
+// Liefert eine neue Array, mutiert das Input nicht.
+function carSortEligible(eligible, sortKey) {
+  const arr = eligible.slice();
+  if (sortKey !== "newest" && sortKey !== "oldest") {
+    // random / unknown → Fisher-Yates
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+    }
+    return arr;
+  }
+  const newest = sortKey === "newest";
+  arr.sort(function (a, b) {
+    const aUser = a.id >= 85;
+    const bUser = b.id >= 85;
+    if (aUser !== bUser) {
+      // "newest": User-Sätze vorne; "oldest": Originale vorne
+      if (newest) return aUser ? -1 : 1;
+      return aUser ? 1 : -1;
+    }
+    if (aUser) {
+      const at = a.created_at ? Date.parse(a.created_at) : NaN;
+      const bt = b.created_at ? Date.parse(b.created_at) : NaN;
+      const aHas = !isNaN(at);
+      const bHas = !isNaN(bt);
+      if (aHas && bHas && at !== bt) return newest ? (bt - at) : (at - bt);
+      if (aHas !== bHas) {
+        // Karte mit Datum kommt zuerst (egal welcher Modus) — die ohne Datum
+        // sind älteste Migrations-Reste und fallen ans Ende des User-Blocks.
+        return aHas ? -1 : 1;
+      }
+      // Tie-break per ID
+      return newest ? (b.id - a.id) : (a.id - b.id);
+    }
+    // Beide Originale → stabile ID-Reihenfolge (1, 2, 3, …) in beiden Modi
+    return a.id - b.id;
+  });
+  return arr;
 }
 
 function updateCarSetupSummary() {
@@ -6918,13 +6998,7 @@ function startCarSession() {
   const eligible = carEligibleSentences();
   if (eligible.length === 0) return;
 
-  let ordered = eligible.slice();
-  if (car.shuffle) {
-    for (let i = ordered.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      const tmp = ordered[i]; ordered[i] = ordered[j]; ordered[j] = tmp;
-    }
-  }
+  const ordered = carSortEligible(eligible, car.sort);
   car.queue = ordered.map(function (s) { return s.id; });
   car.idx = 0;
   car.repCount = 0;
@@ -7200,7 +7274,11 @@ function carAdvance(skipPause) {
     car.idx++;
     if (car.idx >= car.queue.length) {
       if (car.loop) {
-        if (car.shuffle) {
+        // Bei "random": Queue neu mischen, damit jeder Durchgang anders ist.
+        // Bei "newest"/"oldest": Reihenfolge bleibt stabil — der User hat sich
+        // bewusst dafür entschieden, Neue/Alte zuerst zu hören, also reproduzieren
+        // wir dieselbe Reihenfolge in jedem Durchgang.
+        if (car.sort === "random" || (car.sort !== "newest" && car.sort !== "oldest")) {
           for (let i = car.queue.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             const tmp = car.queue[i]; car.queue[i] = car.queue[j]; car.queue[j] = tmp;
