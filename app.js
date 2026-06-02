@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v20-2026-05-24-car-cleanup";
+const APP_VERSION = "v22-2026-06-01-scene-split-delete";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -4769,6 +4769,14 @@ function renderSceneBubble(s) {
     toggle.appendChild(selfBtn);
     toggle.appendChild(otherBtn);
     editRow.appendChild(toggle);
+    // Papierkorb — nur im Edit-Modus, löscht die Karte dauerhaft aus der Szene
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "scene-bubble-delete";
+    delBtn.title = "Karte aus Szene löschen";
+    delBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">delete</span>';
+    delBtn.onclick = function () { deleteSceneSentence(s.id); };
+    editRow.appendChild(delBtn);
     body.appendChild(editRow);
   } else {
     // ES + DE
@@ -4812,6 +4820,18 @@ function renderSceneBubble(s) {
         pill.textContent = srs.text;
         meta.appendChild(pill);
       }
+    }
+    // Teilen-Button — nur wenn die Karte aus mehreren Sätzen besteht.
+    // Wird NACH den innerHTML-Schreibvorgängen (Stars) angehängt, damit der
+    // Click-Listener nicht durch ein erneutes innerHTML-Parsing verloren geht.
+    if (sceneSentenceIsSplittable(s)) {
+      const splitBtn = document.createElement("button");
+      splitBtn.type = "button";
+      splitBtn.className = "scene-bubble-split";
+      splitBtn.title = "In einzelne Sätze aufteilen";
+      splitBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:15px;">call_split</span><span class="scene-bubble-split-label">Teilen</span>';
+      splitBtn.onclick = function () { splitSceneSentence(s.id); };
+      meta.appendChild(splitBtn);
     }
     body.appendChild(meta);
   }
@@ -4873,6 +4893,108 @@ function saveSceneEdit() {
   state.sceneEditing = false;
   state.sceneEditBuffer = null;
   showToast("Änderungen gespeichert (" + touched + " Sätze).");
+  renderSceneDetailPage();
+}
+
+// ----- Satz teilen: lange Mehrsatz-Karte in atomare Einzelsatz-Karten zerlegen -----
+// Shadowing + Recall brauchen kurze, in einem Atemzug nachsprechbare Einheiten.
+// Wir trennen NUR an Satzgrenzen (. ! ?), nie am Komma. Reihenfolge bleibt via
+// scene_order erhalten (mehrere Karten gleicher Rolle hintereinander), der Dialog
+// liest sich identisch.
+function splitIntoSentences(text) {
+  if (!text) return [];
+  const m = ("" + text).match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g);
+  if (!m) { const t = ("" + text).trim(); return t ? [t] : []; }
+  return m.map(function (p) { return p.trim(); }).filter(Boolean);
+}
+
+function sceneSentenceIsSplittable(s) {
+  if (!s || !s.scene_id) return false;
+  return splitIntoSentences(s.es || s.de || "").length > 1;
+}
+
+function splitSceneSentence(id) {
+  const s = getSentenceById(id);
+  if (!s || !s.scene_id) return;
+  const esParts = splitIntoSentences(s.es || "");
+  const deParts = splitIntoSentences(s.de || "");
+  const n = Math.max(esParts.length, deParts.length);
+  if (n < 2) { showToast("Nichts zu teilen — das ist nur ein Satz."); return; }
+  if (!confirm(
+    "Diesen Satz in " + n + " einzelne Karten aufteilen?\n\n" +
+    "Die neuen Karten landen in der Einführung und brauchen neues Audio."
+  )) return;
+
+  const mismatch = esParts.length !== deParts.length;
+  function partAt(arr, i) { return arr[i] != null ? arr[i] : ""; }
+
+  const sceneId = s.scene_id;
+  const baseOrder = (typeof s.scene_order === "number") ? s.scene_order : 0;
+
+  // 1) Originalkarte auf den ERSTEN Teil kürzen
+  s.es = partAt(esParts, 0);
+  s.de = partAt(deParts, 0) || s.de; // DE nie versehentlich leeren
+  s.pending = s.es ? false : true;
+  // Audio passt nicht mehr zum gekürzten Text → invalidieren, damit es neu erzeugt wird
+  if (s.audio_path) s.audio_path = "";
+  s.audio = "";
+
+  // 2) Restliche Teile als neue Karten anlegen, direkt nach dem Original
+  for (let i = 1; i < n; i++) {
+    const de = partAt(deParts, i);
+    const es = partAt(esParts, i);
+    addUserSentence({
+      de: de || "(Deutsch ergänzen)",
+      es: es,
+      cats: s.cats,
+      scene_id: sceneId,
+      scene_role: s.scene_role || "self",
+      scene_order: baseOrder + i * 0.001, // sortiert direkt nach dem Original; gleich renummeriert
+    });
+  }
+
+  // 3) scene_order der ganzen Szene sauber als Integer durchnummerieren
+  const all = state.userSentences
+    .filter(function (x) { return x.scene_id === sceneId; })
+    .sort(function (a, b) {
+      return (a.scene_order || 0) - (b.scene_order || 0) || a.id - b.id;
+    });
+  all.forEach(function (x, i) { x.scene_order = i; });
+
+  saveJSON("hl_user_sentences", state.userSentences); // triggert Cloud-Push
+
+  if (mismatch) {
+    showToast("Geteilt — DE und ES hatten unterschiedlich viele Sätze. Bitte Deutsch auf den neuen Karten prüfen.", 5000);
+  } else {
+    showToast("In " + n + " Karten geteilt.");
+  }
+  renderSceneDetailPage();
+  if (typeof updateProgress === "function") updateProgress();
+}
+
+// ----- Karte aus Szene löschen (nur im Edit-Modus erreichbar) -----
+// Dauerhaft, weil archivierte Karten weiterhin als Bubble in der Szene
+// sichtbar bleiben — zum Aufräumen schlechter Karten ist „weg" gewünscht.
+// Reuse von permanentDeleteUserSentence (räumt Ratings/Audio/Badges auf).
+function deleteSceneSentence(id) {
+  const s = getSentenceById(id);
+  if (!s || !s.scene_id) return;
+  const preview = (s.es || s.de || "").slice(0, 50);
+  if (!confirm("Diese Karte dauerhaft aus der Szene löschen?\n\n„" + preview + "…“")) return;
+  const sceneId = s.scene_id;
+  permanentDeleteUserSentence(id, true); // silent=true → eigener kurzer Toast
+  // Aus dem Edit-Buffer entfernen, damit saveSceneEdit sie nicht mehr anfasst
+  if (state.sceneEditBuffer && state.sceneEditBuffer.sentences) {
+    delete state.sceneEditBuffer.sentences[id];
+  }
+  // scene_order der verbleibenden Karten sauber als Integer neu durchnummerieren
+  const all = state.userSentences
+    .filter(function (x) { return x.scene_id === sceneId; })
+    .sort(function (a, b) {
+      return (a.scene_order || 0) - (b.scene_order || 0) || a.id - b.id;
+    });
+  all.forEach(function (x, i) { x.scene_order = i; });
+  saveJSON("hl_user_sentences", state.userSentences); // persistiert scene_order + triggert Push
   renderSceneDetailPage();
 }
 

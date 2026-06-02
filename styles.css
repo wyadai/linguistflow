@@ -5470,6 +5470,33 @@ body.scene-detail.editing .scene-detail-edit-banner { display: flex; }
 .scene-bubble-srs.due { background: var(--warning); color: var(--on-primary); }
 .scene-bubble-srs.learned { background: var(--learned); color: var(--on-primary); }
 .scene-bubble-srs.fresh { background: var(--surface-high); color: var(--secondary); }
+/* Teilen-Button — markiert Mehrsatz-Karten, die fürs Shadowing zu lang sind */
+.scene-bubble-split {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid var(--warning);
+  background: var(--warning-soft);
+  color: var(--warning-ink);
+  border-radius: var(--radius-pill);
+  font-size: 11px; font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+}
+.scene-bubble-split:hover { background: var(--warning); color: var(--on-primary); }
+.scene-bubble-split .material-symbols-outlined { font-size: 15px; }
+.scene-bubble-split-label { letter-spacing: 0.02em; }
+/* Papierkorb in der Edit-Row — nur im Edit-Modus sichtbar */
+.scene-bubble-delete {
+  flex: 0 0 auto;
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-lowest);
+  color: var(--danger);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.scene-bubble-delete:hover { background: var(--danger-soft); border-color: var(--danger); }
 
 /* Edit-Mode für Bubbles */
 body.scene-detail.editing .scene-bubble-body {
