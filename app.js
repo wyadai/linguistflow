@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v22-2026-06-01-scene-split-delete";
+const APP_VERSION = "v23-2026-06-03-daily-goal-v1";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -1062,6 +1062,11 @@ function addUserSentence(opts) {
     setIntroCount(id, 0);
   }
   saveJSON("hl_user_sentences", state.userSentences);
+  // Tagesziel V1: echte neue Lernsätze zählen fürs Tagespensum. Szenen-"other"-
+  // Linien sind keine eigenständigen Lernkarten und zählen daher nicht.
+  if (sceneRole !== "other" && typeof incrementStat === "function") {
+    incrementStat("new_sentences");
+  }
   return id;
 }
 
@@ -1556,6 +1561,7 @@ function incrementStat(key, amount) {
   // damit der "Heute aktiv"-Dot beim ersten Play des Tages sofort leuchtet.
   try {
     if (typeof renderStreakChain === "function") renderStreakChain();
+    if (typeof renderDailyGoal === "function") renderDailyGoal();
   } catch (e) { /* ignore — engagement layer ist optional */ }
 }
 
@@ -2640,6 +2646,89 @@ function renderTodayActions() {
   }
 }
 
+// ---- Tagesziel (V1) — geführtes Tagespensum ---------------------------
+// Vier Pflichtaufgaben pro Tag. Die Häkchen sind ABGELEITET, nicht klickbar:
+// done folgt direkt aus den Tages-Countern (state.stats.daily[heute]) bzw. bei
+// Active Recall aus dueCount(). Ziele liegen in DAILY_GOAL_CONFIG.
+const DAILY_GOAL_CONFIG = {
+  shadowingTarget: 60, // ~10 Min Shadowing (1 Rep = 1× anhören + nachsprechen)
+  introRuns: 1,        // 1 kompletter Einführungs-Batch (5 Sätze, 5× durchgespielt)
+  newSentences: 2,     // 2 neue Sätze hinzugefügt
+};
+
+function dailyGoalStatsToday() {
+  const today = (typeof isoToday === "function") ? isoToday() : new Date().toISOString().slice(0, 10);
+  return (state.stats && state.stats.daily && state.stats.daily[today]) || {};
+}
+
+function computeDailyGoal() {
+  const d = dailyGoalStatsToday();
+  const shadow = d.shadow_reps || 0;
+  const introRuns = d.intro_runs || 0;
+  const newS = d.new_sentences || 0;
+  const due = (typeof dueCount === "function") ? dueCount() : 0;
+  const tasks = [
+    {
+      key: "recall",
+      done: due === 0,
+      progress: due === 0 ? 1 : 0,
+      target: 1,
+      sub: due === 0
+        ? "Alle fälligen Karten erledigt"
+        : (due + (due === 1 ? " Karte noch fällig" : " Karten noch fällig")),
+    },
+    {
+      key: "shadow",
+      done: shadow >= DAILY_GOAL_CONFIG.shadowingTarget,
+      progress: shadow,
+      target: DAILY_GOAL_CONFIG.shadowingTarget,
+      sub: Math.min(shadow, DAILY_GOAL_CONFIG.shadowingTarget) + " / " +
+           DAILY_GOAL_CONFIG.shadowingTarget + " Reps (~10 Min)",
+    },
+    {
+      key: "intro",
+      done: introRuns >= DAILY_GOAL_CONFIG.introRuns,
+      progress: introRuns,
+      target: DAILY_GOAL_CONFIG.introRuns,
+      sub: introRuns >= DAILY_GOAL_CONFIG.introRuns
+        ? "Einführung gemacht"
+        : "1 Einführung (5 Sätze, 5×)",
+    },
+    {
+      key: "new",
+      done: newS >= DAILY_GOAL_CONFIG.newSentences,
+      progress: newS,
+      target: DAILY_GOAL_CONFIG.newSentences,
+      sub: Math.min(newS, DAILY_GOAL_CONFIG.newSentences) + " / " +
+           DAILY_GOAL_CONFIG.newSentences + " neue Sätze",
+    },
+  ];
+  const doneCount = tasks.filter(function (t) { return t.done; }).length;
+  return { tasks: tasks, doneCount: doneCount, total: tasks.length, allDone: doneCount === tasks.length };
+}
+
+function renderDailyGoal() {
+  const wrap = document.getElementById("daily-goal");
+  if (!wrap) return;
+  const g = computeDailyGoal();
+  const countEl = document.getElementById("daily-goal-count");
+  if (countEl) countEl.textContent = g.doneCount + " / " + g.total;
+  const fill = document.getElementById("daily-goal-bar-fill");
+  if (fill) fill.style.width = Math.round((g.doneCount / g.total) * 100) + "%";
+  wrap.classList.toggle("all-done", g.allDone);
+  for (const t of g.tasks) {
+    const row = document.getElementById("dg-" + t.key);
+    if (row) row.classList.toggle("done", t.done);
+    const sub = document.getElementById("dg-" + t.key + "-sub");
+    if (sub) sub.textContent = t.sub;
+    const mini = document.getElementById("dg-" + t.key + "-fill");
+    if (mini) {
+      const pct = t.target > 0 ? Math.min(100, Math.round((t.progress / t.target) * 100)) : (t.done ? 100 : 0);
+      mini.style.width = pct + "%";
+    }
+  }
+}
+
 // ---- Master-Render -----------------------------------------------------
 function renderEngagement() {
   renderWhyAnchor();
@@ -2647,6 +2736,7 @@ function renderEngagement() {
   renderStreakChain();
   renderAspirational();
   renderTodayActions();
+  renderDailyGoal();
 }
 
 // ---- Wiring -----------------------------------------------------------
@@ -2762,6 +2852,29 @@ function wireEngagement() {
   const todayScenesBtn = document.getElementById("today-action-scenes");
   if (todayScenesBtn) todayScenesBtn.onclick = function () {
     if (typeof openScenesPage === "function") openScenesPage();
+  };
+
+  // Tagesziel-Reihen: Klick startet den passenden Modus. Recall + Einführung
+  // delegieren an die schon verdrahteten "Heute üben"-Cards (gleiche Logik),
+  // Shadowing öffnet den Shadow-Mode-Setup, Neue Sätze die Neuer-Satz-Page.
+  const dgRecall = document.getElementById("dg-recall");
+  if (dgRecall) dgRecall.onclick = function () {
+    const c = document.getElementById("today-action-recall");
+    if (c) c.click();
+  };
+  const dgShadow = document.getElementById("dg-shadow");
+  if (dgShadow) dgShadow.onclick = function () {
+    if (typeof setCarModeActive === "function") setCarModeActive();
+  };
+  const dgIntro = document.getElementById("dg-intro");
+  if (dgIntro) dgIntro.onclick = function () {
+    const ib = document.getElementById("intro-mode-btn");
+    if (ib && !ib.disabled) ib.click();
+    else showToast("Keine Karten in Einführung. Schiebe eine Kategorie rein oder importiere neue Sätze.", 4000);
+  };
+  const dgNew = document.getElementById("dg-new");
+  if (dgNew) dgNew.onclick = function () {
+    if (typeof openNewSentencePage === "function") openNewSentencePage();
   };
 
   // ===== "Karten durchstöbern"-Akkordeon: Boot-State + Persistenz =====
@@ -7270,6 +7383,10 @@ function playCarCurrent() {
       }
     }
     incrementStat("plays");
+    // Tagesziel V1: jeder Shadow-Play = 1 Rep (1× anhören + nachsprechen).
+    // playCarCurrent läuft ausschließlich im Shadow Mode, daher zählt jeder
+    // erfolgreiche Play hier genau eine Wiederholung fürs Tagespensum.
+    incrementStat("shadow_reps");
     // Double-Buffer: jetzt den NÄCHSTEN Play in den OTHER-Buf vorladen, damit
     // der Swap beim nächsten ended() ohne src-Reset auskommt.
     preloadOtherBuf();
@@ -7736,6 +7853,11 @@ function endIntroSession() {
   // intro.queue.length ist die geplante Session-Größe (typ. 25 = 5 × 5).
   const totalReps = intro.idx;
   const target = intro.queue.length;
+  // Tagesziel V1: ein komplett durchgespielter Batch (alle geplanten
+  // Wiederholungen gesehen) zählt als 1 Einführung fürs Tagespensum.
+  if (target > 0 && totalReps >= target) {
+    incrementStat("intro_runs");
+  }
   introSummaryTextEl.textContent = totalReps >= target
     ? "Du hast " + totalReps + " Wiederholungen geschafft."
     : "Du hast " + totalReps + " von " + target + " Wiederholungen gemacht.";
