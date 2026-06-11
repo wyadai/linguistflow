@@ -807,6 +807,10 @@ const DATA = {
   ],
   "categories": [
     {
+      "key": "Alltag",
+      "label": "Alltag"
+    },
+    {
       "key": "Arbeit",
       "label": "Arbeit"
     },

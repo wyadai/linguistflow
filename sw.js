@@ -18,7 +18,7 @@
  * (e.g. https://<user>.github.io/<repo>/) without changes.
  */
 
-const VERSION = "lf-v23-2026-06-03-daily-goal-v1";
+const VERSION = "lf-v24-2026-06-03-kategorie-alltag";
 const SHELL_CACHE = "shell-" + VERSION;
 const AUDIO_CACHE = "audio-" + VERSION;
 
