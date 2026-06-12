@@ -2002,7 +2002,10 @@ body.stats #side-stats-link,
 body.settings #side-settings-link,
 body.scenes #side-scenes-link,
 body.scene-detail #side-scenes-link,
-body:not(.recall):not(.focus):not(.car):not(.intro):not(.new-sentence):not(.saetze):not(.stats):not(.settings):not(.scenes):not(.scene-detail):not(.scene-practice) #side-dashboard-link {
+/* Bugfix Juni 2026: .scene-import ergänzt — fehlte in der Kette, dadurch
+   leuchtete der Dashboard-Link auf der Szenen-Import-Seite fälschlich aktiv.
+   Merkregel: Jede NEUE body-Mode/Page-Klasse muss hier ergänzt werden. */
+body:not(.recall):not(.focus):not(.car):not(.intro):not(.new-sentence):not(.saetze):not(.stats):not(.settings):not(.scenes):not(.scene-detail):not(.scene-practice):not(.scene-import) #side-dashboard-link {
   background: var(--surface-container);
   color: var(--primary);
 }
@@ -2016,7 +2019,7 @@ body.stats #side-stats-link .side-sum-icon,
 body.settings #side-settings-link .side-sum-icon,
 body.scenes #side-scenes-link .side-sum-icon,
 body.scene-detail #side-scenes-link .side-sum-icon,
-body:not(.recall):not(.focus):not(.car):not(.intro):not(.new-sentence):not(.saetze):not(.stats):not(.settings):not(.scenes):not(.scene-detail):not(.scene-practice) #side-dashboard-link .side-sum-icon { color: var(--primary); }
+body:not(.recall):not(.focus):not(.car):not(.intro):not(.new-sentence):not(.saetze):not(.stats):not(.settings):not(.scenes):not(.scene-detail):not(.scene-practice):not(.scene-import) #side-dashboard-link .side-sum-icon { color: var(--primary); }
 /* Badges innerhalb von side-section-link rechts-ankern (Counter für Praxis-Modi) */
 .side-section-link .side-badge { margin-left: auto; }
 

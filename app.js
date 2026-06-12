@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v26-2026-06-12-sw-network-first";
+const APP_VERSION = "v27-2026-06-12-bugfix-batch";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -650,12 +650,20 @@ async function generateAudioFor(id) {
   }
 }
 
+// Parallel-Sperre (Bugfix Juni 2026): Bulk-Import-Queue und der
+// „Alle generieren"-Button konnten gleichzeitig laufen und denselben Satz
+// doppelt generieren → doppelte ElevenLabs-Kosten + konkurrierende
+// Storage-Uploads. Ein simples globales Flag reicht (Single-User-App).
+let _audioGenRunning = false;
+
 // Background audio queue for bulk imports. Sequential (ElevenLabs rate-limits +
 // gentler on the user's quota). Each item already uploads to Storage via
 // generateAudioFor. Progress is shown via toast updates.
 async function generateBulkAudios(ids) {
   if (!Array.isArray(ids) || ids.length === 0) return;
   if (!state.elKey) { showToast("ElevenLabs Key fehlt — Audios nicht generiert.", 4000); return; }
+  if (_audioGenRunning) { showToast("Audio-Generierung läuft bereits — bitte warten.", 4000); return; }
+  _audioGenRunning = true;
   let ok = 0, fail = 0;
   for (let i = 0; i < ids.length; i++) {
     showToast("Audio " + (i + 1) + " / " + ids.length + " …", 60000);
@@ -667,6 +675,7 @@ async function generateBulkAudios(ids) {
     // Small pause to avoid hammering ElevenLabs
     await new Promise(function (r) { setTimeout(r, 300); });
   }
+  _audioGenRunning = false;
   updateGenerateAllAudioBtn();
   const summary = "Audio-Generierung fertig: " + ok + " erfolgreich"
     + (fail ? ", " + fail + " fehlgeschlagen" : "");
@@ -679,6 +688,8 @@ async function generateAllPendingAudios() {
   });
   if (candidates.length === 0) { showToast("Keine ausstehenden Audios."); return; }
   if (!state.elKey) { showToast("Bitte ElevenLabs API Key eingeben."); return; }
+  if (_audioGenRunning) { showToast("Audio-Generierung läuft bereits — bitte warten.", 4000); return; }
+  _audioGenRunning = true;
   generateAllAudioBtn.disabled = true;
   generateAllAudioBtn.classList.add("loading");
   let ok = 0, fail = 0;
@@ -688,6 +699,7 @@ async function generateAllPendingAudios() {
     if (success) { ok++; } else { fail++; break; }
     await new Promise(function (r) { setTimeout(r, 300); });
   }
+  _audioGenRunning = false;
   generateAllAudioBtn.disabled = false;
   generateAllAudioBtn.classList.remove("loading");
   updateGenerateAllAudioBtn();
@@ -1223,15 +1235,12 @@ function escapeHtml(str) {
   });
 }
 
-// "Alle ansehen" → close the page and open "Meine Sätze" in the sidebar
+// "Alle ansehen" → Meine-Sätze-Page öffnen (Bugfix Juni 2026: zeigte vorher
+// auf die in Phase 0 entfernte Sidebar-Sektion #my-sentences-section und
+// öffnete damit nur eine leere Sidebar).
 if (nsRecentAllBtn) nsRecentAllBtn.onclick = function () {
   closeNewSentencePage();
-  openSidePanel();
-  const sec = document.getElementById("my-sentences-section");
-  if (sec) {
-    sec.open = true;
-    setTimeout(function () { try { sec.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 60);
-  }
+  if (typeof openSaetzePage === "function") openSaetzePage();
 };
 
 copyPromptBtn.onclick = function () {
@@ -2834,12 +2843,13 @@ function wireEngagement() {
   // Initial-Render
   try { renderEngagement(); } catch (e) { console.warn("[engagement] initial render failed", e); }
 }
-// rAF defer auf nächsten Frame — alle Top-Level-Defs sind dann bereits ausgewertet.
-if (typeof requestAnimationFrame === "function") {
-  requestAnimationFrame(function () { requestAnimationFrame(wireEngagement); });
-} else {
-  setTimeout(wireEngagement, 0);
-}
+// Defer via setTimeout(0) — alle Top-Level-Defs (inkl. des späten `car`-const)
+// sind dann bereits ausgewertet. Bugfix Juni 2026: vorher doppeltes
+// requestAnimationFrame — rAF feuert in versteckten/Hintergrund-Tabs NICHT,
+// d.h. Hero-Button, Tagesziel & Co. blieben unverdrahtet, bis der Tab
+// sichtbar wurde. setTimeout(0) läuft nach den Top-Level-Statements und
+// auch im Hintergrund zuverlässig.
+setTimeout(wireEngagement, 0);
 
 // ===== Controls =====
 document.getElementById("play-btn").onclick = function () {
@@ -3839,6 +3849,20 @@ if (scenesBackBtn) scenesBackBtn.onclick = function () { closeScenesPage(); };
 // Session-State sauber abgeräumt wird (Timer, audioEl pausieren, etc.).
 const sideDashboardLink = document.getElementById("side-dashboard-link");
 function goToDashboard() {
+  // Scene-Practice ZUERST behandeln (Bugfix Juni 2026): Vorher wurde
+  // scenePracticeCloseBtn.click() gerufen und dessen confirm()-Ergebnis
+  // ignoriert — bei „Abbrechen" verschwand das Overlay trotzdem (Belt-and-
+  // suspenders unten räumte die Klasse weg), aber die Session blieb intern
+  // aktiv (Space-Handler scharf, Run nicht sauber beendet). Jetzt: confirm
+  // hier prüfen und bei Ablehnung den Dashboard-Wechsel KOMPLETT abbrechen.
+  if (document.body.classList.contains("scene-practice")) {
+    const sp = state.scenePractice;
+    if (sp.active && sp.index < sp.queue.length) {
+      if (!confirm("Session abbrechen? Kein Run-Counter wird hochgezählt.")) return;
+    }
+    if (typeof endScenePractice === "function") endScenePractice(false);
+  }
+
   // Pages schließen (jede close-Funktion ist no-op wenn ihre body-Klasse fehlt,
   // aber wir checken trotzdem damit wir keine ungewollten Side-Effekte triggern)
   if (document.body.classList.contains("scene-detail") && typeof closeSceneDetailPage === "function") closeSceneDetailPage();
@@ -3848,8 +3872,8 @@ function goToDashboard() {
   if (document.body.classList.contains("settings") && typeof closeSettingsPage === "function") closeSettingsPage();
   if (document.body.classList.contains("new-sentence") && typeof closeNewSentencePage === "function") closeNewSentencePage();
 
-  // Sessions/Modes beenden (jede exit-/end-Funktion macht Cleanup intern)
-  if (document.body.classList.contains("scene-practice") && scenePracticeCloseBtn) scenePracticeCloseBtn.click();
+  // Sessions/Modes beenden (jede exit-/end-Funktion macht Cleanup intern;
+  // scene-practice wurde oben bereits mit confirm behandelt)
   if (document.body.classList.contains("car") && typeof exitCarSession === "function") exitCarSession();
   if (document.body.classList.contains("focus") && typeof endFocusSession === "function") endFocusSession("dashboard");
   if (document.body.classList.contains("intro") && typeof endIntroSession === "function") endIntroSession();
@@ -4879,7 +4903,11 @@ function renderSceneBubble(s) {
     meta.appendChild(speaker);
 
     if (!isOther) {
-      meta.innerHTML += sceneStarsHtml(s.id);
+      // Bugfix Juni 2026: insertAdjacentHTML statt `innerHTML +=`. Letzteres
+      // serialisiert + re-parst ALLE bestehenden Kinder — dabei gehen
+      // onclick-PROPERTIES verloren (der Speaker-Button oben war dadurch
+      // tot). insertAdjacentHTML hängt nur das neue Fragment an.
+      meta.insertAdjacentHTML("beforeend", sceneStarsHtml(s.id));
       // SRS-Pill
       const srs = sceneSrsPillFor(s.id);
       if (srs.text) {
@@ -4890,8 +4918,6 @@ function renderSceneBubble(s) {
       }
     }
     // Teilen-Button — nur wenn die Karte aus mehreren Sätzen besteht.
-    // Wird NACH den innerHTML-Schreibvorgängen (Stars) angehängt, damit der
-    // Click-Listener nicht durch ein erneutes innerHTML-Parsing verloren geht.
     if (sceneSentenceIsSplittable(s)) {
       const splitBtn = document.createElement("button");
       splitBtn.type = "button";
@@ -5003,9 +5029,20 @@ function splitSceneSentence(id) {
   s.es = partAt(esParts, 0);
   s.de = partAt(deParts, 0) || s.de; // DE nie versehentlich leeren
   s.pending = s.es ? false : true;
-  // Audio passt nicht mehr zum gekürzten Text → invalidieren, damit es neu erzeugt wird
-  if (s.audio_path) s.audio_path = "";
+  // Audio passt nicht mehr zum gekürzten Text → VOLLSTÄNDIG invalidieren.
+  // Bugfix Juni 2026: audio_path="" allein reichte nicht — audioSrcFor()
+  // fiel auf den IDB-Cache (userAudioUrls) zurück, die gekürzte Karte
+  // spielte weiter das alte Mehrsatz-Audio und hasAudio() blieb true,
+  // wodurch der „Audio generieren"-Button gar nicht erst erschien.
+  const oldAudioPath = s.audio_path || "";
+  s.audio_path = "";
   s.audio = "";
+  deleteAudioFromIDB(s.id);
+  if (oldAudioPath && currentUser) {
+    sb.storage.from("audios").remove([oldAudioPath]).then(function (res) {
+      if (res && res.error) console.warn("Storage delete failed for", oldAudioPath, res.error);
+    }).catch(function (e) { console.warn("Storage delete error:", e); });
+  }
 
   // 2) Restliche Teile als neue Karten anlegen, direkt nach dem Original
   for (let i = 1; i < n; i++) {
@@ -5393,6 +5430,10 @@ function showScenePracticeSummary() {
     });
     if (allLearned) patch.status = "mastered";
   }
+  // Bugfix Juni 2026: Status VOR updateScene sichern — updateScene mutiert
+  // `sc` per Object.assign, danach ist sc.status bereits der neue Wert und
+  // der „jetzt aktiv"-Vergleich unten war immer false.
+  const prevStatus = sc.status;
   updateScene(sc.id, patch);
 
   // Stats-Counter "scene_runs" für heute inkrementieren — die Stats-Page
@@ -5432,7 +5473,6 @@ function showScenePracticeSummary() {
   if (scenePracticeSummaryViewEl) scenePracticeSummaryViewEl.style.display = "flex";
   if (scenePracticeProgressFillEl) scenePracticeProgressFillEl.style.width = "100%";
 
-  const wasNewStatus = patch.status && patch.status !== sc.status;
   if (scenePracticeSummaryTitleEl) {
     scenePracticeSummaryTitleEl.textContent = "Run " + newCount + " abgeschlossen";
   }
@@ -5441,8 +5481,9 @@ function showScenePracticeSummary() {
     if (graduated > 0) sub = graduated + " Karte(n) sind jetzt im aktiven Pool.";
     else if (advanced > 0) sub = advanced + " Karte(n) sind eine Einführungs-Stufe weiter.";
     else sub = "Schön — du hast die Szene durchgespielt.";
-    if (patch.status === "active" && sc.status === "draft") sub += " Status: jetzt aktiv.";
-    if (patch.status === "mastered") sub += " Szene als beherrscht markiert!";
+    // Vergleich gegen prevStatus (Bugfix Juni 2026, siehe oben)
+    if (patch.status === "active" && prevStatus === "draft") sub += " Status: jetzt aktiv.";
+    if (patch.status === "mastered" && prevStatus !== "mastered") sub += " Szene als beherrscht markiert!";
     scenePracticeSummarySubEl.textContent = sub;
   }
   if (scenePracticeSummaryStatsEl) {
@@ -5609,8 +5650,18 @@ async function onLogin() {
   }
   setSyncStatus("syncing");
   try {
+    // Bugfix Juni 2026: Lokale Daten VOR dem Pull snapshotten. Vorher las
+    // maybeMigrate() aus localStorage — das war zu dem Zeitpunkt aber schon
+    // vom Pull mit dem (ggf. leeren) Cloud-Stand überschrieben, d.h. der
+    // „lokale Daten in die Cloud heben"-Pfad konnte nie greifen.
+    const localSnapshot = {
+      ratings: loadJSON("hl_ratings", {}),
+      mnemonics: loadJSON("hl_mnemonics", {}),
+      sentences: loadJSON("hl_user_sentences", []),
+      shownMnemonics: loadJSON("hl_shown_mnemonics", []),
+    };
     await pullCloudData();
-    await maybeMigrate();
+    await maybeMigrate(localSnapshot);
     await migrateIDBToStorage();
     setSyncStatus("synced");
     showToast("Eingeloggt als " + currentUser.email);
@@ -6023,8 +6074,17 @@ async function pushUserSentences() {
       const { error: uErr } = await sb.from("user_sentences").upsert(rows);
       if (uErr) {
         // Wenn die scene_*-Spalten fehlen, ein Mal still retryen ohne sie.
+        // Bugfix Juni 2026: Vorher matchte auch das nackte Wort "column" —
+        // damit setzte JEDER Fehler mit "column" im Text (z.B. Constraint
+        // auf einer ganz anderen Spalte) das Session-Flag, und alle weiteren
+        // Pushes ließen die scene_*-Felder weg → Szenen-Zuordnung konnte in
+        // der Cloud verloren gehen. Jetzt: nur Postgres-Code 42703
+        // (undefined_column) bzw. explizite scene_*-Spaltennamen.
         const msg = (uErr.message || "").toLowerCase();
-        if (includeScene && (msg.indexOf("scene_id") >= 0 || msg.indexOf("scene_order") >= 0 || msg.indexOf("scene_role") >= 0 || msg.indexOf("column") >= 0)) {
+        const isMissingSceneColumn =
+          uErr.code === "42703" ||
+          msg.indexOf("scene_id") >= 0 || msg.indexOf("scene_order") >= 0 || msg.indexOf("scene_role") >= 0;
+        if (includeScene && isMissingSceneColumn) {
           console.warn("[scenes] user_sentences.scene_* fehlen — fallback push ohne Szenen-Felder. Migration ausführen für volle Funktion.");
           window._scenesColumnsMissing = true;
           const legacyRows = state.userSentences.map(function (s) {
@@ -6103,8 +6163,10 @@ async function pushScenes() {
 }
 
 // One-time migration on first login if cloud is empty but local has data
-async function maybeMigrate() {
-  if (!currentUser) return;
+// `snapshot` = lokale Daten, VOR pullCloudData gesichert (Bugfix Juni 2026 —
+// localStorage ist nach dem Pull bereits mit dem Cloud-Stand überschrieben).
+async function maybeMigrate(snapshot) {
+  if (!currentUser || !snapshot) return;
   const { data: profile } = await sb.from("profiles")
     .select("ratings, mnemonics").eq("id", currentUser.id).maybeSingle();
   const { count: sCount } = await sb.from("user_sentences")
@@ -6114,9 +6176,9 @@ async function maybeMigrate() {
     Object.keys(profile.mnemonics || {}).length > 0
   ));
   if (cloudHasData) return;
-  const lsRatings = JSON.parse(localStorage.getItem("hl_ratings") || "{}");
-  const lsMnemonics = JSON.parse(localStorage.getItem("hl_mnemonics") || "{}");
-  const lsSentences = JSON.parse(localStorage.getItem("hl_user_sentences") || "[]");
+  const lsRatings = snapshot.ratings || {};
+  const lsMnemonics = snapshot.mnemonics || {};
+  const lsSentences = snapshot.sentences || [];
   const hasLocal = lsSentences.length > 0 ||
     Object.keys(lsRatings).length > 0 ||
     Object.keys(lsMnemonics).length > 0;
@@ -6128,7 +6190,7 @@ async function maybeMigrate() {
   state.ratings = lsRatings;
   state.mnemonics = lsMnemonics;
   state.userSentences = lsSentences;
-  state.shownMnemonics = new Set(JSON.parse(localStorage.getItem("hl_shown_mnemonics") || "[]"));
+  state.shownMnemonics = new Set(snapshot.shownMnemonics || []);
   _suppressSync = false;
   await pushProfile();
   await pushUserSentences();
@@ -6368,7 +6430,13 @@ setupMediaSession();
 const focus = {
   // Setup config
   cats: new Set(),           // empty = all
-  ratings: new Set(["unrated", "1", "2"]),  // default: practice the unmastered cards
+  // Default: LEER = alle Stufen (Bugfix Juni 2026). Vorher ["unrated","1","2"]
+  // — damit erschienen fällige 3★- und learned-Karten über den Sidebar-Link
+  // NIE (die SRS-Queue wurde zusätzlich rating-gefiltert und 30-Tage-Karten
+  // verhungerten). Die Today-Action-Card setzte deshalb schon explizit ein
+  // leeres Set — jetzt sind beide Pfade konsistent. Rating-Filter bleibt als
+  // explizites Opt-in im Setup wählbar.
+  ratings: new Set(),
   count: 20,                 // 10 / 20 / 50 / "all"
   order: "random",           // "random" | "hardest" | "oldest"
   // Session
@@ -7357,6 +7425,13 @@ function exitCarSession() {
   car._lastSrcId = null;
   car._preloadedId = null;
   if (car.pendingTimer) { clearTimeout(car.pendingTimer); car.pendingTimer = null; }
+  // Bugfix Juni 2026: Quick-Listen-Timer (Hero-Button, 5-Min-Auto-Stop) hier
+  // IMMER abräumen. Vorher überlebte er ein manuelles Session-Ende und
+  // beendete dann eine später gestartete REGULÄRE Shadow-Session nach 5 Min.
+  if (typeof _quickListenStopTimer !== "undefined" && _quickListenStopTimer) {
+    clearTimeout(_quickListenStopTimer);
+    _quickListenStopTimer = null;
+  }
   // Double-Buffer: beide Audio-Elemente pausieren beim Exit.
   try { audioEl.pause(); } catch (e) { /* ignore */ }
   if (audioElB) { try { audioElB.pause(); } catch (e) { /* ignore */ } }
