@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v30-2026-06-12-motivation-sprint-1";
+const APP_VERSION = "v31-2026-06-12-tagesziel-plan";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -988,8 +988,9 @@ function addUserSentence(opts) {
     setIntroCount(id, 0);
   }
   saveJSON("hl_user_sentences", state.userSentences);
-  // Tagesziel V1: echte neue Lernsätze zählen fürs Tagespensum. Szenen-"other"-
-  // Linien sind keine eigenständigen Lernkarten und zählen daher nicht.
+  // Statistik-Counter: echte neue Lernsätze. Szenen-"other"-Linien sind keine
+  // eigenständigen Lernkarten und zählen daher nicht. (Seit Juni 2026 keine
+  // Tagesziel-Pflichtaufgabe mehr — Counter bleibt für Stats/Sync erhalten.)
   if (sceneRole !== "other" && typeof incrementStat === "function") {
     incrementStat("new_sentences");
   }
@@ -2640,13 +2641,15 @@ function renderTodayActions() {
 }
 
 // ---- Tagesziel (V1) — geführtes Tagespensum ---------------------------
-// Vier Pflichtaufgaben pro Tag. Die Häkchen sind ABGELEITET, nicht klickbar:
+// Drei Pflichtaufgaben pro Tag (Reihenfolge = Lern-Funnel: Einführung →
+// Shadowing → Active Recall). Die Häkchen sind ABGELEITET, nicht klickbar:
 // done folgt direkt aus den Tages-Countern (state.stats.daily[heute]) bzw. bei
 // Active Recall aus dueCount(). Ziele liegen in DAILY_GOAL_CONFIG.
+// "Neue Sätze" wurde Juni 2026 als Pflichtaufgabe entfernt (User-Entscheidung);
+// der Counter new_sentences wird weiterhin in addUserSentence() gezählt.
 const DAILY_GOAL_CONFIG = {
   shadowingTarget: 60, // ~10 Min Shadowing (1 Rep = 1× anhören + nachsprechen)
   introRuns: 1,        // 1 kompletter Einführungs-Batch (5 Sätze, 5× durchgespielt)
-  newSentences: 2,     // 2 neue Sätze hinzugefügt
 };
 
 function dailyGoalStatsToday() {
@@ -2658,26 +2661,8 @@ function computeDailyGoal() {
   const d = dailyGoalStatsToday();
   const shadow = d.shadow_reps || 0;
   const introRuns = d.intro_runs || 0;
-  const newS = d.new_sentences || 0;
   const due = (typeof dueCount === "function") ? dueCount() : 0;
   const tasks = [
-    {
-      key: "recall",
-      done: due === 0,
-      progress: due === 0 ? 1 : 0,
-      target: 1,
-      sub: due === 0
-        ? "Alle fälligen Karten erledigt"
-        : (due + (due === 1 ? " Karte noch fällig" : " Karten noch fällig")),
-    },
-    {
-      key: "shadow",
-      done: shadow >= DAILY_GOAL_CONFIG.shadowingTarget,
-      progress: shadow,
-      target: DAILY_GOAL_CONFIG.shadowingTarget,
-      sub: Math.min(shadow, DAILY_GOAL_CONFIG.shadowingTarget) + " / " +
-           DAILY_GOAL_CONFIG.shadowingTarget + " Reps (~10 Min)",
-    },
     {
       key: "intro",
       done: introRuns >= DAILY_GOAL_CONFIG.introRuns,
@@ -2688,12 +2673,21 @@ function computeDailyGoal() {
         : "1 Einführung (5 Sätze, 5×)",
     },
     {
-      key: "new",
-      done: newS >= DAILY_GOAL_CONFIG.newSentences,
-      progress: newS,
-      target: DAILY_GOAL_CONFIG.newSentences,
-      sub: Math.min(newS, DAILY_GOAL_CONFIG.newSentences) + " / " +
-           DAILY_GOAL_CONFIG.newSentences + " neue Sätze",
+      key: "shadow",
+      done: shadow >= DAILY_GOAL_CONFIG.shadowingTarget,
+      progress: shadow,
+      target: DAILY_GOAL_CONFIG.shadowingTarget,
+      sub: Math.min(shadow, DAILY_GOAL_CONFIG.shadowingTarget) + " / " +
+           DAILY_GOAL_CONFIG.shadowingTarget + " Reps (~10 Min)",
+    },
+    {
+      key: "recall",
+      done: due === 0,
+      progress: due === 0 ? 1 : 0,
+      target: 1,
+      sub: due === 0
+        ? "Alle fälligen Karten erledigt"
+        : (due + (due === 1 ? " Karte noch fällig" : " Karten noch fällig")),
     },
   ];
   const doneCount = tasks.filter(function (t) { return t.done; }).length;
@@ -2875,7 +2869,7 @@ function wireEngagement() {
 
   // Tagesziel-Reihen: Klick startet den passenden Modus. Recall + Einführung
   // delegieren an die schon verdrahteten "Heute üben"-Cards (gleiche Logik),
-  // Shadowing öffnet den Shadow-Mode-Setup, Neue Sätze die Neuer-Satz-Page.
+  // Shadowing öffnet den Shadow-Mode-Setup.
   const dgRecall = document.getElementById("dg-recall");
   if (dgRecall) dgRecall.onclick = function () {
     const c = document.getElementById("today-action-recall");
@@ -2890,10 +2884,6 @@ function wireEngagement() {
     const ib = document.getElementById("intro-mode-btn");
     if (ib && !ib.disabled) ib.click();
     else showToast("Keine Karten in Einführung. Schiebe eine Kategorie rein oder importiere neue Sätze.", 4000);
-  };
-  const dgNew = document.getElementById("dg-new");
-  if (dgNew) dgNew.onclick = function () {
-    if (typeof openNewSentencePage === "function") openNewSentencePage();
   };
 
   // ===== "Karten durchstöbern"-Akkordeon: Boot-State + Persistenz =====

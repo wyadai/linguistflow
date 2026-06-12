@@ -198,7 +198,7 @@
       </button>
 
       <!-- ===== Tagesziel (V1) — geführtes Tagespensum =====
-           Vier Pflichtaufgaben mit auto-gesetzten Häkchen (abgeleitet aus den
+           Drei Pflichtaufgaben mit auto-gesetzten Häkchen (abgeleitet aus den
            Tages-Countern in state.stats.daily). Häkchen sind NICHT klickbar —
            sie folgen dem Übungsfortschritt. Render via renderDailyGoal() in
            renderEngagement() + Live-Update in incrementStat(). -->
@@ -220,17 +220,17 @@
       <div class="daily-goal" id="daily-goal">
         <div class="daily-goal-header">
           <span class="material-symbols-outlined" style="font-size:18px;">checklist</span>
-          <span class="daily-goal-label">Heute dein Pensum</span>
-          <span class="daily-goal-count" id="daily-goal-count">0 / 4</span>
+          <span class="daily-goal-label">Dein Plan für heute</span>
+          <span class="daily-goal-count" id="daily-goal-count">0 / 3</span>
         </div>
         <div class="daily-goal-bar"><div class="daily-goal-bar-fill" id="daily-goal-bar-fill"></div></div>
         <div class="daily-goal-list">
-          <button class="daily-goal-row" id="dg-recall" type="button">
+          <button class="daily-goal-row" id="dg-intro" type="button">
             <span class="dg-tick"><span class="material-symbols-outlined" style="font-size:16px;">check</span></span>
             <span class="dg-body">
-              <span class="dg-title">Active Recall</span>
-              <span class="dg-sub" id="dg-recall-sub">Alle fälligen Karten</span>
-              <span class="dg-mini"><span class="dg-mini-fill" id="dg-recall-fill"></span></span>
+              <span class="dg-title">Einführung</span>
+              <span class="dg-sub" id="dg-intro-sub">1 Einführung (5 Sätze, 5×)</span>
+              <span class="dg-mini"><span class="dg-mini-fill" id="dg-intro-fill"></span></span>
             </span>
             <span class="dg-arrow"><span class="material-symbols-outlined" style="font-size:18px;">arrow_forward</span></span>
           </button>
@@ -243,21 +243,12 @@
             </span>
             <span class="dg-arrow"><span class="material-symbols-outlined" style="font-size:18px;">arrow_forward</span></span>
           </button>
-          <button class="daily-goal-row" id="dg-intro" type="button">
+          <button class="daily-goal-row" id="dg-recall" type="button">
             <span class="dg-tick"><span class="material-symbols-outlined" style="font-size:16px;">check</span></span>
             <span class="dg-body">
-              <span class="dg-title">Einführung</span>
-              <span class="dg-sub" id="dg-intro-sub">1 Einführung (5 Sätze, 5×)</span>
-              <span class="dg-mini"><span class="dg-mini-fill" id="dg-intro-fill"></span></span>
-            </span>
-            <span class="dg-arrow"><span class="material-symbols-outlined" style="font-size:18px;">arrow_forward</span></span>
-          </button>
-          <button class="daily-goal-row" id="dg-new" type="button">
-            <span class="dg-tick"><span class="material-symbols-outlined" style="font-size:16px;">check</span></span>
-            <span class="dg-body">
-              <span class="dg-title">Neue Sätze</span>
-              <span class="dg-sub" id="dg-new-sub">0 / 2 neue Sätze</span>
-              <span class="dg-mini"><span class="dg-mini-fill" id="dg-new-fill"></span></span>
+              <span class="dg-title">Active Recall</span>
+              <span class="dg-sub" id="dg-recall-sub">Alle fälligen Karten</span>
+              <span class="dg-mini"><span class="dg-mini-fill" id="dg-recall-fill"></span></span>
             </span>
             <span class="dg-arrow"><span class="material-symbols-outlined" style="font-size:18px;">arrow_forward</span></span>
           </button>
