@@ -1492,6 +1492,8 @@
   <audio id="audio" preload="none"></audio>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <!-- core.js MUSS vor app.js laden (reine Logik-Funktionen, auch von tests.html genutzt) -->
+  <script src="core.js"></script>
   <script src="data.js"></script>
   <script src="app.js"></script>
 </body>

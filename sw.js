@@ -25,7 +25,7 @@
  * Pfade sind RELATIV, damit GitHub-Pages-Subpaths funktionieren.
  */
 
-const VERSION = "lf-v27-2026-06-12-bugfix-batch";
+const VERSION = "lf-v28-2026-06-12-konsolidierung-1";
 const SHELL_CACHE = "shell-" + VERSION;
 const AUDIO_CACHE = "audio-v1"; // bewusst OHNE Version — überlebt Deploys
 
@@ -33,6 +33,7 @@ const APP_SHELL = [
   "./",
   "./index.html",
   "./app.js",
+  "./core.js",
   "./styles.css",
   "./data.js",
   "./manifest.json",
@@ -78,7 +79,7 @@ function isShellRequest(url) {
   // Nur eigene Origin — verhindert, dass z.B. fremde /app.js-Pfade matchen.
   if (url.origin !== self.location.origin) return false;
   const tails = [
-    "/", "/index.html", "/app.js", "/styles.css", "/data.js",
+    "/", "/index.html", "/app.js", "/core.js", "/styles.css", "/data.js",
     "/manifest.json",
     "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png",
     "/icon.svg", "/icon-180.png", "/favicon-32.png",

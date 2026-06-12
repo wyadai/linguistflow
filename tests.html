@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>LinguistFlow — Tests</title>
+<style>
+  body { font-family: ui-monospace, Menlo, Consolas, monospace; background: #f8f9ff; color: #0d1c2d; padding: 24px; max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 20px; }
+  #summary { font-size: 16px; font-weight: 700; padding: 12px 16px; border-radius: 10px; margin: 16px 0; }
+  #summary.ok { background: #e3f1e8; color: #2d6a44; }
+  #summary.fail { background: #ffdad6; color: #ba1a1a; }
+  .t { padding: 4px 8px; border-radius: 6px; font-size: 13px; }
+  .t.pass::before { content: "✓ "; color: #4a8a5e; }
+  .t.fail::before { content: "✗ "; color: #ba1a1a; }
+  .t.fail { background: #ffdad6; font-weight: 700; }
+  .group { margin-top: 18px; font-weight: 700; font-size: 14px; color: #505f76; }
+</style>
+</head>
+<body>
+<h1>LinguistFlow — Tests für core.js</h1>
+<p>Diese Seite einfach im Browser öffnen (lokal oder auf GitHub Pages unter <code>/tests.html</code>).
+Alle Tests laufen ohne Login, ohne Supabase, ohne App-Daten.</p>
+<div id="summary">Läuft …</div>
+<div id="results"></div>
+
+<script src="core.js"></script>
+<script>
+(function () {
+  let pass = 0, fail = 0, currentGroup = "";
+  const results = document.getElementById("results");
+
+  function group(name) {
+    currentGroup = name;
+    const el = document.createElement("div");
+    el.className = "group";
+    el.textContent = name;
+    results.appendChild(el);
+  }
+  function check(name, actual, expected) {
+    const ok = JSON.stringify(actual) === JSON.stringify(expected);
+    const el = document.createElement("div");
+    el.className = "t " + (ok ? "pass" : "fail");
+    el.textContent = name + (ok ? "" : "  —  erwartet: " + JSON.stringify(expected) + "  erhalten: " + JSON.stringify(actual));
+    results.appendChild(el);
+    if (ok) pass++; else { fail++; console.error("[FAIL]", currentGroup, name, { expected: expected, actual: actual }); }
+  }
+
+  // ===== escapeHtml =====
+  group("escapeHtml");
+  check("escaped Sonderzeichen", escapeHtml('<b a="1">&\'</b>'), "&lt;b a=&quot;1&quot;&gt;&amp;&#39;&lt;/b&gt;");
+  check("lässt normalen Text durch", escapeHtml("Hola qué tal"), "Hola qué tal");
+  check("number-Input wird zu String", escapeHtml(42), "42");
+
+  // ===== isoAddDays =====
+  group("isoAddDays");
+  check("+1 Tag", isoAddDays("2026-06-11", 1), "2026-06-12");
+  check("+30 Tage über Monatsgrenze", isoAddDays("2026-06-15", 30), "2026-07-15");
+  check("Jahreswechsel", isoAddDays("2025-12-31", 1), "2026-01-01");
+  check("Schaltjahr 2028", isoAddDays("2028-02-28", 1), "2028-02-29");
+  check("+0 Tage = identisch", isoAddDays("2026-06-11", 0), "2026-06-11");
+
+  // ===== isoToday =====
+  group("isoToday");
+  check("Format YYYY-MM-DD", /^\d{4}-\d{2}-\d{2}$/.test(isoToday()), true);
+
+  // ===== splitIntoSentences =====
+  group("splitIntoSentences");
+  check("zwei Sätze", splitIntoSentences("Hola. Qué tal?"), ["Hola.", "Qué tal?"]);
+  check("Komma trennt NICHT", splitIntoSentences("Hola, qué tal."), ["Hola, qué tal."]);
+  check("ohne Endpunkt", splitIntoSentences("Hola qué tal"), ["Hola qué tal"]);
+  check("Ausrufezeichen", splitIntoSentences("¡Buenos días! ¿Cómo estás? Bien."), ["¡Buenos días!", "¿Cómo estás?", "Bien."]);
+  check("leer", splitIntoSentences(""), []);
+  check("null", splitIntoSentences(null), []);
+  check("Abkürzungs-Edge: Punkt+Leerzeichen trennt", splitIntoSentences("Uno. Dos."), ["Uno.", "Dos."]);
+
+  // ===== carSortEligible =====
+  group("carSortEligible");
+  const cards = [
+    { id: 3 },                                          // Original
+    { id: 1 },                                          // Original
+    { id: 90, created_at: "2026-05-01T10:00:00Z" },     // User, älter
+    { id: 99, created_at: "2026-06-01T10:00:00Z" },     // User, neuer
+    { id: 95 },                                         // User, OHNE Datum (Migrations-Rest)
+  ];
+  const newest = carSortEligible(cards, "newest").map(function (s) { return s.id; });
+  check("newest: User (neu→alt, ohne-Datum ans Ende), dann Originale ID ASC", newest, [99, 90, 95, 1, 3]);
+  const oldest = carSortEligible(cards, "oldest").map(function (s) { return s.id; });
+  check("oldest: Originale ID ASC, dann User (alt→neu, ohne-Datum ans Ende)", oldest, [1, 3, 90, 99, 95]);
+  const rand = carSortEligible(cards, "random");
+  check("random: gleiche Menge, gleiche Länge", rand.map(function (s) { return s.id; }).sort(function (a, b) { return a - b; }), [1, 3, 90, 95, 99]);
+  check("Input-Array bleibt unverändert (slice)", cards.map(function (s) { return s.id; }), [3, 1, 90, 99, 95]);
+
+  // ===== mergeCardStateAndRatings =====
+  group("mergeCardStateAndRatings");
+  const r1 = mergeCardStateAndRatings(
+    { "5": { interval_days: 1, due_at: "2026-06-12", last_reviewed_at: "2026-06-11" } },
+    { "5": 1 },
+    { "5": { interval_days: 30, due_at: "2026-07-01", last_reviewed_at: "2026-06-01" } },
+    { "5": "learned" }
+  );
+  check("lokal neuer → lokal gewinnt (cardState)", r1.cardState["5"].due_at, "2026-06-12");
+  check("lokal neuer → lokal gewinnt (rating)", r1.ratings["5"], 1);
+
+  const r2 = mergeCardStateAndRatings(
+    { "5": { interval_days: 1, due_at: "2026-06-02", last_reviewed_at: "2026-06-01" } },
+    { "5": 1 },
+    { "5": { interval_days: 30, due_at: "2026-07-10", last_reviewed_at: "2026-06-10" } },
+    { "5": "learned" }
+  );
+  check("Cloud neuer → Cloud gewinnt (cardState)", r2.cardState["5"].due_at, "2026-07-10");
+  check("Cloud neuer → Cloud gewinnt (rating)", r2.ratings["5"], "learned");
+
+  const r3 = mergeCardStateAndRatings(
+    { "7": { interval_days: 3, due_at: "2026-06-14", last_reviewed_at: "2026-06-11" } }, { "7": 2 },
+    { "9": { interval_days: 7, due_at: "2026-06-18", last_reviewed_at: "2026-06-11" } }, { "9": 3 }
+  );
+  check("nur lokal vorhandene Karte überlebt", r3.cardState["7"].due_at, "2026-06-14");
+  check("nur in Cloud vorhandene Karte kommt dazu", r3.cardState["9"].due_at, "2026-06-18");
+  check("Ratings beider Seiten vorhanden", [r3.ratings["7"], r3.ratings["9"]], [2, 3]);
+
+  const r4 = mergeCardStateAndRatings({}, {}, {}, { "12": 2 });
+  check("Cloud-Rating ohne cardState wird ergänzt", r4.ratings["12"], 2);
+
+  const r5 = mergeCardStateAndRatings(
+    { "5": { interval_days: 1, due_at: "2026-06-12", last_reviewed_at: "2026-06-11" } }, { "5": 1 },
+    { "5": { interval_days: 30, due_at: "2026-07-11", last_reviewed_at: "2026-06-11" } }, { "5": "learned" }
+  );
+  check("Gleichstand → Cloud gewinnt", r5.ratings["5"], "learned");
+
+  // ===== mergeIntroCounts =====
+  group("mergeIntroCounts");
+  check("explizit > fehlend (lokal 0 bleibt)", mergeIntroCounts({ "5": 0 }, {}), { "5": 0 });
+  check("explizit > fehlend (Cloud 0 bleibt)", mergeIntroCounts({}, { "5": 0 }), { "5": 0 });
+  check("beide explizit → Max", mergeIntroCounts({ "5": 3 }, { "5": 1 }), { "5": 3 });
+  check("disjunkte Karten → Union", mergeIntroCounts({ "5": 2 }, { "6": 4 }), { "5": 2, "6": 4 });
+
+  // ===== mergeStats =====
+  group("mergeStats");
+  const st = mergeStats(
+    { daily: { "2026-06-10": { plays: 30, rated: 2 } }, all_time: { longest_streak: 5, first_active_date: "2026-04-01" } },
+    { daily: { "2026-06-10": { plays: 10, reveals: 4 }, "2026-06-09": { plays: 50 } }, all_time: { longest_streak: 3, first_active_date: "2026-05-01" } }
+  );
+  check("pro Metrik Max am selben Tag", st.daily["2026-06-10"], { plays: 30, rated: 2, reveals: 4 });
+  check("Cloud-only-Tag bleibt erhalten", st.daily["2026-06-09"], { plays: 50 });
+  check("longest_streak per Max", st.all_time.longest_streak, 5);
+  check("first_active_date per Min (früher)", st.all_time.first_active_date, "2026-04-01");
+  check("leere Inputs crashen nicht", mergeStats(undefined, undefined), { daily: {}, all_time: {} });
+
+  // ===== Summary =====
+  const summary = document.getElementById("summary");
+  summary.textContent = fail === 0
+    ? ("Alle " + pass + " Tests bestanden ✓")
+    : (fail + " von " + (pass + fail) + " Tests FEHLGESCHLAGEN");
+  summary.className = fail === 0 ? "ok" : "fail";
+})();
+</script>
+</body>
+</html>
