@@ -1446,6 +1446,18 @@
           </div>
         </section>
 
+        <section class="settings-section">
+          <h3 class="settings-section-title">
+            <span class="material-symbols-outlined" style="font-size:20px;">download</span>
+            Backup
+          </h3>
+          <div class="settings-card">
+            <p class="settings-hint" style="margin:0 0 12px 0;">Speichert alle Lerndaten als Datei auf diesem Gerät: Sätze, Bewertungen, SRS-Termine, Eselsbrücken, Einführungs-Fortschritt, Szenen, Statistiken und dein Warum. Audios sind nicht enthalten (liegen in Supabase Storage bzw. im Repo).</p>
+            <button class="side-btn primary" id="export-backup-btn">Backup herunterladen (JSON)</button>
+            <small class="side-tiny">Empfehlung: ab und zu ein Backup ziehen — als Versicherung gegen Sync- oder Cloud-Probleme.</small>
+          </div>
+        </section>
+
         <!-- Hidden legacy elements still referenced by JS. UI ist entfernt,
              aber die JS-Refs müssen bleiben, sonst crasht buildIntroCatSelect()
              oder updatePendingBadge(). -->

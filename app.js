@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v23-2026-06-03-daily-goal-v1";
+const APP_VERSION = "v25-2026-06-12-sync-hardening";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -213,6 +213,26 @@ function saveJSON(key, val) {
            key === "hl_stats") queuePushProfile();
 }
 
+// ===== Sync-Tombstones (Juni 2026) =====
+// Cloud-Deletes passieren nur noch für IDs, die LOKAL explizit gelöscht
+// wurden. Vorher rechnete pushUserSentences "cloudIds − localIds" und löschte
+// die Differenz — ein Gerät mit veraltetem lokalen Stand (z.B. Handy-PWA,
+// die seit Wochen nicht neu gepullt hat) löschte damit Sätze, die ein
+// ANDERES Gerät neu angelegt hatte. Realer Datenverlust-Pfad im
+// PC+Handy-Setup. Keys: hl_deleted_ids (Sätze), hl_deleted_scene_ids (Szenen).
+function addTombstone(key, id) {
+  const list = loadJSON(key, []);
+  if (list.indexOf(id) < 0) {
+    list.push(id);
+    localStorage.setItem(key, JSON.stringify(list));
+  }
+}
+function clearTombstones(key, ids) {
+  if (!ids || !ids.length) return;
+  const list = loadJSON(key, []).filter(function (id) { return ids.indexOf(id) < 0; });
+  localStorage.setItem(key, JSON.stringify(list));
+}
+
 // ===== Lifecycle helpers (Einführungs-Modus) =====
 // Each card has an intro_count value driving its lifecycle stage:
 //   - explicit 0      → "backlog" (sent to Einführung, not yet seen)
@@ -256,7 +276,17 @@ function getSentenceById(id) {
 function nextUserId() {
   let maxId = DATA.sentences.length;
   for (const s of state.userSentences) if (s.id > maxId) maxId = s.id;
-  return maxId + 1;
+  // Hochwasser-Marke (Juni 2026): IDs werden NIE wiederverwendet — auch dann
+  // nicht, wenn der Satz mit der höchsten ID gelöscht wurde. Vorher konnte
+  // eine neue Karte die ID einer gelöschten erben (inkl. verwaister
+  // Storage-Audios und Tombstone-Kollisionen). Die Marke ist monoton
+  // wachsend und wird zusätzlich beim Cloud-Pull angehoben — das senkt auch
+  // das Kollisionsrisiko, wenn auf zwei Geräten parallel Sätze entstehen.
+  const hwm = Number(localStorage.getItem("hl_max_id_ever")) || 0;
+  if (hwm > maxId) maxId = hwm;
+  const next = maxId + 1;
+  localStorage.setItem("hl_max_id_ever", String(next));
+  return next;
 }
 function isUserSentence(id) { return id > DATA.sentences.length; }
 
@@ -287,7 +317,12 @@ function getSceneById(id) {
 function nextSceneId() {
   let maxId = 0;
   for (const sc of state.scenes) if (sc.id > maxId) maxId = sc.id;
-  return maxId + 1;
+  // Hochwasser-Marke analog nextUserId() (Juni 2026): keine ID-Wiederverwendung.
+  const hwm = Number(localStorage.getItem("hl_max_scene_id_ever")) || 0;
+  if (hwm > maxId) maxId = hwm;
+  const next = maxId + 1;
+  localStorage.setItem("hl_max_scene_id_ever", String(next));
+  return next;
 }
 
 // ===== DOM refs =====
@@ -1112,6 +1147,9 @@ function deleteScene(id) {
     }
   }
   state.scenes = state.scenes.filter(function (sc) { return sc.id !== id; });
+  // Tombstone (Juni 2026): analog zu Sätzen — pushScenes löscht nur noch
+  // explizit lokal gelöschte Szenen aus der Cloud.
+  addTombstone("hl_deleted_scene_ids", id);
   saveJSON("hl_user_sentences", state.userSentences);
   saveJSON("hl_scenes", state.scenes);
 }
@@ -1389,12 +1427,18 @@ function permanentDeleteUserSentence(id, silent) {
   delete state.ratings[id];
   delete state.mnemonics[id];
   delete state.cardState[id];
+  // Orphan-Cleanup (Juni 2026): introCounts wurde hier vorher vergessen.
+  delete state.introCounts[id];
   state.shownMnemonics.delete(id);
   state.editingMnemonics.delete(id);
+  // Tombstone (Juni 2026): merkt sich die Löschung für pushUserSentences,
+  // damit der Cloud-Delete gezielt nur diese ID trifft (kein Diff-Delete mehr).
+  addTombstone("hl_deleted_ids", id);
   saveJSON("hl_user_sentences", state.userSentences);
   saveJSON("hl_ratings", state.ratings);
   saveJSON("hl_mnemonics", state.mnemonics);
   saveJSON("hl_card_state", state.cardState);
+  saveJSON("hl_intro_counts", state.introCounts);
   saveShownMnemonics();
   deleteAudioFromIDB(id);
   // Also delete from Supabase Storage if this card had a cloud audio file.
@@ -3820,6 +3864,45 @@ function closeSettingsPage() {
 if (sideSettingsLink) sideSettingsLink.onclick = function () { openSettingsPage(); };
 if (settingsBackBtn) settingsBackBtn.onclick = function () { closeSettingsPage(); };
 
+// ===== Backup-Export (Juni 2026) =====
+// Sichert alle Lerndaten als JSON-Datei aufs Gerät. Reine Versicherung gegen
+// Sync-/Cloud-Fehler. Audios sind NICHT enthalten (Storage/Repo). API-Keys
+// sind bewusst NICHT enthalten (sollen das Gerät nie verlassen).
+function exportBackup() {
+  const payload = {
+    format: "linguistflow-backup",
+    version: 1,
+    exported_at: new Date().toISOString(),
+    app_version: APP_VERSION,
+    userSentences: state.userSentences,
+    scenes: state.scenes,
+    ratings: state.ratings,
+    mnemonics: state.mnemonics,
+    shownMnemonics: [...state.shownMnemonics],
+    introCounts: state.introCounts,
+    cardState: state.cardState,
+    stats: state.stats,
+    whyText: state.whyText,
+    settings: {
+      autoplay: state.autoPlay,
+      main_sort: state.mainSort,
+      us_sort: state.usSort,
+    },
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "linguistflow-backup-" + isoToday() + ".json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  showToast("Backup heruntergeladen.");
+}
+const exportBackupBtn = document.getElementById("export-backup-btn");
+if (exportBackupBtn) exportBackupBtn.onclick = exportBackup;
+
 // =====================================================================
 // SZENEN-PAGE (v1 — Phase 3) + Import-Modal (v1 — Phase 2)
 // =====================================================================
@@ -5730,6 +5813,116 @@ document.getElementById("login-form").addEventListener("submit", async function 
 });
 
 // ===== Cloud sync =====
+// ===== Profil-Merge (Juni 2026) =====
+// Kombiniert die Karten-Daten eines Cloud-Profils mit dem lokalen State,
+// statt eine Seite blind zu überschreiben. Wird von pullCloudData (Login)
+// UND pushProfile (vor jedem Schreiben) benutzt. Damit kann weder ein
+// veralteter lokaler Stand die Cloud platttrampeln (Last-Write-Wins) noch
+// ein Pull lokale Offline-Änderungen vernichten.
+//
+// Merge-Regeln pro Datentyp:
+// - cardState + ratings: pro Karte gewinnt der neuere last_reviewed_at
+//   (Gleichstand/unklar → Cloud). ratings folgen der cardState-Entscheidung,
+//   weil beide immer zusammen via scheduleNext() geschrieben werden.
+// - introCounts: explizite Einträge gewinnen über fehlende (fehlend = 5 =
+//   graduiert); sind beide explizit, gewinnt der höhere Fortschritt. Edge:
+//   eine offline graduierte Karte kann einmal extra in der Einführung
+//   auftauchen — harmlos.
+// - mnemonics: Vereinigungsmenge; bei Konflikt gewinnt Cloud (es gibt keine
+//   Timestamps, und Eselsbrücken werden praktisch nur am PC editiert).
+// - shownMnemonics: Vereinigungsmenge.
+// - stats: pro Tag, pro Metrik Max() (Mai-2026-Verhalten, hierher verschoben).
+//
+// Bewusste Schwäche: ein explizites LÖSCHEN (z.B. Rating entfernen) auf
+// Gerät A kann durch den Merge mit Gerät B wieder auftauchen. Seltener Fall —
+// Wiederauferstehung ist das deutlich kleinere Übel als Datenverlust.
+function mergeCardData(profile) {
+  if (!profile) return;
+  const s = profile.settings || {};
+
+  // --- cardState + ratings (Autorität: last_reviewed_at pro Karte) ---
+  const cloudCardState = (s.card_state && typeof s.card_state === "object") ? s.card_state : {};
+  const cloudRatings = profile.ratings || {};
+  const localCardState = state.cardState || {};
+  const mergedCardState = Object.assign({}, localCardState);
+  const mergedRatings = Object.assign({}, state.ratings || {});
+  Object.keys(cloudCardState).forEach(function (id) {
+    const l = localCardState[id];
+    const c = cloudCardState[id];
+    const localNewer = l && l.last_reviewed_at &&
+      (!c.last_reviewed_at || l.last_reviewed_at > c.last_reviewed_at);
+    if (!localNewer) {
+      mergedCardState[id] = c;
+      if (cloudRatings[id] !== undefined) mergedRatings[id] = cloudRatings[id];
+    }
+  });
+  // Cloud-Ratings ohne cardState-Eintrag (Alt-Daten vor SRS Phase A):
+  // nur ergänzen, lokal Vorhandenes nicht überschreiben.
+  Object.keys(cloudRatings).forEach(function (id) {
+    if (mergedRatings[id] === undefined) mergedRatings[id] = cloudRatings[id];
+  });
+  state.cardState = mergedCardState;
+  state.ratings = mergedRatings;
+
+  // --- introCounts ---
+  const cloudIntro = (s.intro_counts && typeof s.intro_counts === "object") ? s.intro_counts : {};
+  const localIntro = state.introCounts || {};
+  const mergedIntro = Object.assign({}, cloudIntro);
+  Object.keys(localIntro).forEach(function (id) {
+    if (mergedIntro[id] === undefined) mergedIntro[id] = localIntro[id];
+    else mergedIntro[id] = Math.max(Number(mergedIntro[id]) || 0, Number(localIntro[id]) || 0);
+  });
+  state.introCounts = mergedIntro;
+
+  // --- mnemonics + shownMnemonics ---
+  state.mnemonics = Object.assign({}, state.mnemonics || {}, profile.mnemonics || {});
+  (profile.shown_mnemonics || []).forEach(function (id) { state.shownMnemonics.add(id); });
+
+  // --- stats (per-Tag Max-Merge, Verhalten unverändert seit Mai 2026) ---
+  if (s.stats && typeof s.stats === "object") {
+    const localDaily = (state.stats && state.stats.daily) || {};
+    const cloudDaily = s.stats.daily || {};
+    const mergedDaily = {};
+    const allDays = new Set(Object.keys(localDaily).concat(Object.keys(cloudDaily)));
+    allDays.forEach(function (day) {
+      const l = localDaily[day] || {};
+      const c = cloudDaily[day] || {};
+      const keys = new Set(Object.keys(l).concat(Object.keys(c)));
+      const merged = {};
+      keys.forEach(function (k) {
+        merged[k] = Math.max(Number(l[k]) || 0, Number(c[k]) || 0);
+      });
+      mergedDaily[day] = merged;
+    });
+    const localAll = (state.stats && state.stats.all_time) || {};
+    const cloudAll = s.stats.all_time || {};
+    const mergedAll = Object.assign({}, cloudAll);
+    if (typeof localAll.longest_streak === "number") {
+      mergedAll.longest_streak = Math.max(
+        Number(cloudAll.longest_streak) || 0,
+        localAll.longest_streak
+      );
+    }
+    if (localAll.first_active_date) {
+      if (!mergedAll.first_active_date || localAll.first_active_date < mergedAll.first_active_date) {
+        mergedAll.first_active_date = localAll.first_active_date;
+      }
+    }
+    state.stats = { daily: mergedDaily, all_time: mergedAll };
+  }
+}
+
+// Spiegelt die Karten-Daten nach einem Merge in den localStorage-Cache.
+// Direkt via setItem (NICHT saveJSON), damit kein neuer Push gequeued wird.
+function mirrorCardDataToLocalStorage() {
+  localStorage.setItem("hl_ratings", JSON.stringify(state.ratings));
+  localStorage.setItem("hl_mnemonics", JSON.stringify(state.mnemonics));
+  localStorage.setItem("hl_shown_mnemonics", JSON.stringify([...state.shownMnemonics]));
+  localStorage.setItem("hl_intro_counts", JSON.stringify(state.introCounts));
+  localStorage.setItem("hl_card_state", JSON.stringify(state.cardState));
+  localStorage.setItem("hl_stats", JSON.stringify(state.stats));
+}
+
 async function pullCloudData() {
   if (!currentUser) return;
   _suppressSync = true;
@@ -5739,55 +5932,18 @@ async function pullCloudData() {
       .from("profiles").select("*").eq("id", currentUser.id).maybeSingle();
     if (pErr) throw pErr;
     if (profile) {
-      state.ratings = profile.ratings || {};
-      state.mnemonics = profile.mnemonics || {};
-      state.shownMnemonics = new Set(profile.shown_mnemonics || []);
       const s = profile.settings || {};
+      // Skalare Settings: Cloud autoritativ, lokal als Cache.
       if (typeof s.autoplay === "boolean") state.autoPlay = s.autoplay;
       if (s.main_sort) state.mainSort = s.main_sort;
       if (s.us_sort) state.usSort = s.us_sort;
-      if (s.intro_counts && typeof s.intro_counts === "object") state.introCounts = s.intro_counts;
-      if (s.card_state && typeof s.card_state === "object") state.cardState = s.card_state;
       // Engagement-Layer: Dein Warum (G1) — cloud autoritativ, lokal als Cache.
       if (typeof s.why_text === "string") state.whyText = s.why_text;
-      if (s.stats && typeof s.stats === "object") {
-        // Merge per-day mit Max() — Cloud und lokal werden so kombiniert, dass
-        // offline aufgelaufene Tage erhalten bleiben. Wichtig für mehrtägige
-        // Offline-Phasen (Urlaub): vorher überschrieb `state.stats = s.stats`
-        // sämtliche lokal aufgelaufenen Tage, was den Streak beim ersten
-        // Online-Sync zerriss. Jetzt: Vereinigungsmenge aller Tage, pro Tag
-        // Max() pro Metrik. Konfliktfrei, weil Counter nie sinken.
-        const localDaily = (state.stats && state.stats.daily) || {};
-        const cloudDaily = s.stats.daily || {};
-        const mergedDaily = {};
-        const allDays = new Set(Object.keys(localDaily).concat(Object.keys(cloudDaily)));
-        allDays.forEach(function (day) {
-          const l = localDaily[day] || {};
-          const c = cloudDaily[day] || {};
-          const keys = new Set(Object.keys(l).concat(Object.keys(c)));
-          const merged = {};
-          keys.forEach(function (k) {
-            merged[k] = Math.max(Number(l[k]) || 0, Number(c[k]) || 0);
-          });
-          mergedDaily[day] = merged;
-        });
-        // all_time: longest_streak per Max, first_active_date per Min (= früher).
-        const localAll = (state.stats && state.stats.all_time) || {};
-        const cloudAll = s.stats.all_time || {};
-        const mergedAll = Object.assign({}, cloudAll);
-        if (typeof localAll.longest_streak === "number") {
-          mergedAll.longest_streak = Math.max(
-            Number(cloudAll.longest_streak) || 0,
-            localAll.longest_streak
-          );
-        }
-        if (localAll.first_active_date) {
-          if (!mergedAll.first_active_date || localAll.first_active_date < mergedAll.first_active_date) {
-            mergedAll.first_active_date = localAll.first_active_date;
-          }
-        }
-        state.stats = { daily: mergedDaily, all_time: mergedAll };
-      }
+      // Karten-Daten (ratings/cardState/introCounts/mnemonics/stats):
+      // MERGE statt Überschreiben (Juni 2026). Vorher vernichtete der Pull
+      // alle lokal aufgelaufenen Offline-Änderungen (Ratings, SRS-Termine,
+      // Intro-Fortschritt) — nur stats waren gemerged. Details: mergeCardData.
+      mergeCardData(profile);
       // SRS Phase A: one-shot migration of existing ratings into card_state.
       // Idempotent via settings.srs_phase_a_migrated flag — runs only on first
       // login after deploying Phase A. Distributes due_at across the next 1/3/7/30
@@ -5813,15 +5969,10 @@ async function pullCloudData() {
         state._srsPhaseAMigrated = true;
       }
       // Mirror to localStorage (cache for offline / next reload)
-      localStorage.setItem("hl_ratings", JSON.stringify(state.ratings));
-      localStorage.setItem("hl_mnemonics", JSON.stringify(state.mnemonics));
-      localStorage.setItem("hl_shown_mnemonics", JSON.stringify([...state.shownMnemonics]));
+      mirrorCardDataToLocalStorage();
       localStorage.setItem("hl_autoplay", JSON.stringify(state.autoPlay));
       localStorage.setItem("hl_main_sort", state.mainSort);
       localStorage.setItem("hl_us_sort", state.usSort);
-      localStorage.setItem("hl_intro_counts", JSON.stringify(state.introCounts));
-      localStorage.setItem("hl_card_state", JSON.stringify(state.cardState));
-      localStorage.setItem("hl_stats", JSON.stringify(state.stats));
       localStorage.setItem("hl_why_text", state.whyText);
     }
     // User sentences
@@ -5841,6 +5992,13 @@ async function pullCloudData() {
       };
     });
     localStorage.setItem("hl_user_sentences", JSON.stringify(state.userSentences));
+
+    // ID-Hochwasser-Marke anheben (Juni 2026) — siehe nextUserId(): IDs
+    // dürfen nie wiederverwendet werden, auch nicht nach Löschungen.
+    let maxCloudId = 0;
+    for (const s2 of state.userSentences) if (s2.id > maxCloudId) maxCloudId = s2.id;
+    const hwm = Number(localStorage.getItem("hl_max_id_ever")) || 0;
+    if (maxCloudId > hwm) localStorage.setItem("hl_max_id_ever", String(maxCloudId));
 
     // Scenes — eigene Tabelle. Wir tolerieren ein Fehlen der Tabelle, damit
     // die App auch vor Ausführung der Migration sauber bootet.
@@ -5862,6 +6020,11 @@ async function pullCloudData() {
         };
       });
       localStorage.setItem("hl_scenes", JSON.stringify(state.scenes));
+      // Szenen-ID-Hochwasser-Marke anheben (analog Sätze).
+      let maxSceneId = 0;
+      for (const sc2 of state.scenes) if (sc2.id > maxSceneId) maxSceneId = sc2.id;
+      const scHwm = Number(localStorage.getItem("hl_max_scene_id_ever")) || 0;
+      if (maxSceneId > scHwm) localStorage.setItem("hl_max_scene_id_ever", String(maxSceneId));
     } catch (scErr) {
       // Wenn die `scenes`-Tabelle noch nicht existiert (Migration nicht
       // ausgeführt), loggen wir eine Hinweis-Warnung statt zu crashen.
@@ -5872,6 +6035,11 @@ async function pullCloudData() {
   } finally {
     _suppressSync = false;
   }
+  // Nach dem Merge kann der lokale Stand neuer sein als die Cloud (z.B.
+  // offline geratete Karten, deren Push fehlschlug). Einmal zurückpushen,
+  // damit beide Seiten konvergieren. pushProfile merged selbst nochmal
+  // (merge-before-write), das ist also idempotent und sicher.
+  queuePushProfile();
 }
 
 let pushProfileTimer = null;
@@ -5885,6 +6053,26 @@ async function pushProfile() {
   pushProfileTimer = null;
   if (!currentUser) return;
   try {
+    // Merge-before-write (Juni 2026): aktuellen Cloud-Stand holen und in den
+    // lokalen State mergen, BEVOR wir schreiben. Vorher war der Push ein
+    // Last-Write-Wins übers gesamte Profil-Blob — ein Gerät mit veraltetem
+    // Stand überschrieb damit sämtliche zwischenzeitlichen Änderungen des
+    // anderen Geräts. Best effort: scheitert der Lese-Versuch, pushen wir
+    // trotzdem (besser ein riskanter Push als gar keiner — der nächste
+    // Pull merged wieder). Skalare Settings (autoplay, sorts, why_text)
+    // werden bewusst NICHT zurückgemerged: die gerade getätigte lokale
+    // Änderung ist hier ja oft der Auslöser des Pushes.
+    try {
+      const { data: cloudProfile } = await sb.from("profiles")
+        .select("ratings, mnemonics, shown_mnemonics, settings")
+        .eq("id", currentUser.id).maybeSingle();
+      if (cloudProfile) {
+        mergeCardData(cloudProfile);
+        mirrorCardDataToLocalStorage();
+      }
+    } catch (mergeErr) {
+      console.warn("pushProfile: merge-before-write übersprungen:", mergeErr);
+    }
     const { error } = await sb.from("profiles").upsert({
       id: currentUser.id,
       ratings: state.ratings,
@@ -5925,18 +6113,20 @@ async function pushUserSentences() {
   pushSentencesTimer = null;
   if (!currentUser) return;
   try {
-    // Determine what's in cloud
-    const { data: cloud, error: cErr } = await sb
-      .from("user_sentences").select("id").eq("user_id", currentUser.id);
-    if (cErr) throw cErr;
-    const cloudIds = new Set((cloud || []).map(function (r) { return r.id; }));
-    const localIds = new Set(state.userSentences.map(function (s) { return s.id; }));
-    // Delete from cloud what no longer exists locally
-    const toDelete = [...cloudIds].filter(function (id) { return !localIds.has(id); });
-    if (toDelete.length) {
+    // Cloud-Delete via Tombstones (Juni 2026): Es werden NUR IDs gelöscht,
+    // die auf DIESEM Gerät explizit gelöscht wurden (hl_deleted_ids).
+    // Vorher: Diff-Delete (alles in der Cloud, was lokal fehlt) — das hat
+    // bei veraltetem lokalen Stand die neuen Sätze des anderen Geräts
+    // mitgelöscht. Sätze, die nur in der Cloud existieren, bleiben jetzt
+    // unangetastet und kommen beim nächsten Login-Pull lokal an.
+    const tombstones = loadJSON("hl_deleted_ids", []);
+    if (tombstones.length) {
       const { error: dErr } = await sb.from("user_sentences").delete()
-        .eq("user_id", currentUser.id).in("id", toDelete);
+        .eq("user_id", currentUser.id).in("id", tombstones);
       if (dErr) throw dErr;
+      // Erst nach erfolgreichem Delete aufräumen — schlägt er fehl,
+      // bleiben die Tombstones liegen und der nächste Push versucht's erneut.
+      clearTombstones("hl_deleted_ids", tombstones);
     }
     // Upsert all local rows.
     // Wenn die Szenen-Migration noch nicht gelaufen ist, fehlen die scene_*
@@ -5999,20 +6189,16 @@ async function pushScenes() {
   pushScenesTimer = null;
   if (!currentUser) return;
   try {
-    // 1) Bestehende Cloud-IDs holen
-    const { data: cloud, error: cErr } = await sb
-      .from("scenes").select("id").eq("user_id", currentUser.id);
-    if (cErr) throw cErr;
-    const cloudIds = new Set((cloud || []).map(function (r) { return r.id; }));
-    const localIds = new Set(state.scenes.map(function (sc) { return sc.id; }));
-    // 2) Lokal gelöschte Szenen aus Cloud entfernen
-    const toDelete = [...cloudIds].filter(function (id) { return !localIds.has(id); });
-    if (toDelete.length) {
+    // 1) Lokal gelöschte Szenen aus Cloud entfernen — via Tombstones
+    //    (Juni 2026, analog pushUserSentences: kein Diff-Delete mehr).
+    const tombstones = loadJSON("hl_deleted_scene_ids", []);
+    if (tombstones.length) {
       const { error: dErr } = await sb.from("scenes").delete()
-        .eq("user_id", currentUser.id).in("id", toDelete);
+        .eq("user_id", currentUser.id).in("id", tombstones);
       if (dErr) throw dErr;
+      clearTombstones("hl_deleted_scene_ids", tombstones);
     }
-    // 3) Lokale Rows upserten
+    // 2) Lokale Rows upserten
     if (state.scenes.length) {
       const rows = state.scenes.map(function (sc) {
         return {
