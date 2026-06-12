@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=phase4-loginfix">
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <!-- ===== Login screen (visible when not authenticated) ===== -->
@@ -1429,25 +1429,6 @@
 
         <section class="settings-section">
           <h3 class="settings-section-title">
-            <span class="material-symbols-outlined" style="font-size:20px;">cloud_download</span>
-            Offline-Vorbereitung
-          </h3>
-          <div class="settings-card">
-            <div class="side-label">Audio-Cache <span id="offline-cache-status" class="api-status">— / —</span></div>
-            <p class="settings-hint" style="margin:8px 0 12px 0;">Lädt alle Satz-Audios in den Service-Worker-Cache, damit sie auch ohne Internet abspielen — z.B. im Flugmodus, Tunnel, Flugzeug oder unterwegs ohne Roaming.</p>
-            <button class="side-btn primary" id="prefetch-audios-btn">
-              <span id="prefetch-audios-text">Alle Audios für offline vorbereiten</span>
-            </button>
-            <div id="prefetch-progress" class="prefetch-progress" style="display:none;">
-              <div class="prefetch-progress-bar"><div class="prefetch-progress-fill" id="prefetch-progress-fill"></div></div>
-              <div class="prefetch-progress-text" id="prefetch-progress-text">0 / 0</div>
-            </div>
-            <small class="settings-hint">Originale werden vom Repo geladen, eigene Sätze aus Supabase Storage. Wiederholtes Drücken überspringt bereits gecachte Dateien — keine Mehrkosten.</small>
-          </div>
-        </section>
-
-        <section class="settings-section">
-          <h3 class="settings-section-title">
             <span class="material-symbols-outlined" style="font-size:20px;">download</span>
             Backup
           </h3>
@@ -1511,7 +1492,7 @@
   <audio id="audio" preload="none"></audio>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-  <script src="data.js?v=phase4-loginfix"></script>
-  <script src="app.js?v=phase4-loginfix"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

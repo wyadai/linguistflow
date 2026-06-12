@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v25-2026-06-12-sync-hardening";
+const APP_VERSION = "v26-2026-06-12-sw-network-first";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -697,133 +697,12 @@ async function generateAllPendingAudios() {
 }
 generateAllAudioBtn.onclick = generateAllPendingAudios;
 
-// =====================================================================
-// Offline-Vorbereitung — Audio-Pre-Fetch in den Service-Worker-Cache
-// =====================================================================
-// Iteriert über alle nicht-archivierten Sätze mit Audio, fetcht jeden
-// einmal — der Service Worker intercepted und cached automatisch:
-//   - Originale (es_guate_NN.mp3): cache-first
-//   - Storage-Audios (supabase.co/audios/*): stale-while-revalidate
-// Blob:- und data:-URLs werden übersprungen, weil die schon via IDB
-// offline funktionieren und auch nicht SW-cachebar wären.
-//
-// Idempotent: bereits gecachte URLs werden via caches.match() erkannt
-// und übersprungen → mehrmaliges Drücken kostet kein Netzwerk.
-//
-// Sichtbarkeit der Cache-Befüllung: countCachedAudios() zählt vor/nach
-// dem Run, damit der User sieht, dass es was getan hat (Engagement-
-// Hilfsmittel — sonst fühlt sich der Klick wie ein No-Op an).
-
-const prefetchAudiosBtn = document.getElementById("prefetch-audios-btn");
-const prefetchAudiosText = document.getElementById("prefetch-audios-text");
-const prefetchProgressEl = document.getElementById("prefetch-progress");
-const prefetchProgressFillEl = document.getElementById("prefetch-progress-fill");
-const prefetchProgressTextEl = document.getElementById("prefetch-progress-text");
-const offlineCacheStatusEl = document.getElementById("offline-cache-status");
-
-function getPrefetchCandidates() {
-  return allSentences().filter(function (s) {
-    if (s.archived) return false;
-    const src = audioSrcFor(s);
-    if (!src) return false;
-    if (src.indexOf("blob:") === 0 || src.indexOf("data:") === 0) return false;
-    return true;
-  });
-}
-
-async function countCachedAudios() {
-  if (!("caches" in window)) return { cached: 0, total: 0 };
-  const candidates = getPrefetchCandidates();
-  let cached = 0;
-  for (let i = 0; i < candidates.length; i++) {
-    const src = audioSrcFor(candidates[i]);
-    if (!src) continue;
-    try {
-      const match = await caches.match(src);
-      if (match) cached++;
-    } catch (e) { /* ignore */ }
-  }
-  return { cached: cached, total: candidates.length };
-}
-
-async function updateOfflineCacheStatus() {
-  if (!offlineCacheStatusEl || !prefetchAudiosBtn || !prefetchAudiosText) return;
-  if (!("caches" in window)) {
-    offlineCacheStatusEl.textContent = "nicht unterstützt";
-    prefetchAudiosBtn.disabled = true;
-    prefetchAudiosText.textContent = "Cache nicht verfügbar";
-    return;
-  }
-  offlineCacheStatusEl.textContent = "wird gezählt ...";
-  prefetchAudiosBtn.disabled = true;
-  const { cached, total } = await countCachedAudios();
-  offlineCacheStatusEl.textContent = cached + " / " + total + " offline";
-  const missing = total - cached;
-  if (total === 0) {
-    prefetchAudiosText.textContent = "Keine Audios vorhanden";
-    prefetchAudiosBtn.disabled = true;
-  } else if (missing === 0) {
-    prefetchAudiosText.textContent = "Alles offline verfügbar";
-    prefetchAudiosBtn.disabled = true;
-  } else {
-    prefetchAudiosText.textContent = missing + " Audio(s) für offline laden";
-    prefetchAudiosBtn.disabled = false;
-  }
-}
-
-async function prefetchAllAudios() {
-  if (!prefetchAudiosBtn) return;
-  const candidates = getPrefetchCandidates();
-  if (candidates.length === 0) {
-    showToast("Keine Audios zum Vorbereiten.");
-    return;
-  }
-  prefetchAudiosBtn.disabled = true;
-  if (prefetchAudiosText) prefetchAudiosText.textContent = "Lädt ...";
-  if (prefetchProgressEl) prefetchProgressEl.style.display = "block";
-  let done = 0;
-  let failed = 0;
-  let newlyCached = 0;
-  for (let i = 0; i < candidates.length; i++) {
-    const src = audioSrcFor(candidates[i]);
-    if (src) {
-      try {
-        const already = await caches.match(src);
-        if (!already) {
-          const resp = await fetch(src, { cache: "default", credentials: "omit" });
-          if (!resp || !resp.ok) {
-            failed++;
-          } else {
-            newlyCached++;
-          }
-        }
-      } catch (e) {
-        failed++;
-      }
-    }
-    done++;
-    const pct = Math.round((done / candidates.length) * 100);
-    if (prefetchProgressFillEl) prefetchProgressFillEl.style.width = pct + "%";
-    if (prefetchProgressTextEl) {
-      prefetchProgressTextEl.textContent = done + " / " + candidates.length
-        + (failed ? "  (" + failed + " Fehler)" : "");
-    }
-  }
-  await updateOfflineCacheStatus();
-  setTimeout(function () {
-    if (prefetchProgressEl) prefetchProgressEl.style.display = "none";
-    if (prefetchProgressFillEl) prefetchProgressFillEl.style.width = "0%";
-  }, 2500);
-  showToast(
-    newlyCached + " neu gecacht"
-    + (failed ? ", " + failed + " fehlgeschlagen" : "")
-    + ". Insgesamt " + (done - failed) + " / " + candidates.length + " offline."
-  , failed ? 4500 : 3000);
-}
-
-if (prefetchAudiosBtn) {
-  prefetchAudiosBtn.onclick = prefetchAllAudios;
-}
+// Die „Offline-Vorbereitung" (Audio-Pre-Fetch in den SW-Cache, Mai 2026)
+// wurde im Juni 2026 entfernt — User-Entscheidung: Offline-Nutzung ist kein
+// reales Szenario (zu 90% online). Audios werden weiterhin beim ERSTEN
+// Abspielen automatisch vom SW gecacht (spart Egress/Bandbreite), aber es
+// gibt keinen manuellen Prefetch-Button mehr. Hintergrund-Audio (Shadowing
+// bei gesperrtem Screen) ist davon unabhängig und bleibt voll erhalten.
 
 function updateGenerateAllAudioBtn() {
   const candidates = state.userSentences.filter(function (s) {
@@ -3844,13 +3723,6 @@ function openSettingsPage() {
   document.body.classList.add("settings");
   closeSidePanel();
   window.scrollTo({ top: 0, behavior: "instant" });
-  // Offline-Audio-Status frisch zählen (fire-and-forget). Läuft im
-  // Hintergrund, blockt das Öffnen der Page nicht.
-  if (typeof updateOfflineCacheStatus === "function") {
-    updateOfflineCacheStatus().catch(function (e) {
-      console.warn("[offline] cache count failed:", e);
-    });
-  }
 }
 function closeSettingsPage() {
   document.body.classList.remove("settings");
@@ -6379,14 +6251,37 @@ _audioDbReady = initAudioDB().then(function () {
 // =====================================================================
 // PWA · Service Worker registration
 // =====================================================================
-// Cache app shell + audios for offline use. The sw.js file handles all the
-// caching strategy details. We bump VERSION inside sw.js whenever app code
-// changes meaningfully — the activate handler clears stale caches.
+// Seit Juni 2026 liefert der SW den App-Code network-first aus — neue
+// Deploys sind damit automatisch beim nächsten Laden live. Der SW cached
+// nur noch Audios (Bandbreite/Egress) und hält die Shell als Fallback
+// für kurze Netz-Aussetzer vor.
 if ("serviceWorker" in navigator) {
+  // Update-Fix (Juni 2026): Wenn eine neue SW-Version übernimmt
+  // (controllerchange nach skipWaiting), einmal neu laden, damit sofort
+  // der frische Code läuft — statt erst beim übernächsten Besuch.
+  // Guards: (a) kein Reload beim allerersten SW-Install (hadController),
+  // (b) max. einmal (refreshing), (c) NICHT mitten in einer Übung oder
+  // laufendem Audio — dann reicht der nächste natürliche Reload.
+  const hadController = !!navigator.serviceWorker.controller;
+  let _swRefreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", function () {
+    if (!hadController || _swRefreshing) return;
+    const busy = document.body.classList.contains("car")
+      || document.body.classList.contains("focus")
+      || document.body.classList.contains("intro")
+      || document.body.classList.contains("scene-practice")
+      || (typeof audioEl !== "undefined" && audioEl && !audioEl.paused);
+    if (busy) {
+      console.info("[SW] Neue Version aktiv — Reload beim nächsten Besuch (Session läuft).");
+      return;
+    }
+    _swRefreshing = true;
+    location.reload();
+  });
   window.addEventListener("load", function () {
     navigator.serviceWorker.register("sw.js").then(function (reg) {
       // When a new SW is found, ping it to skip waiting so the user gets the
-      // update on next reload rather than after closing all tabs.
+      // update immediately rather than after closing all tabs.
       reg.addEventListener("updatefound", function () {
         const newWorker = reg.installing;
         if (!newWorker) return;

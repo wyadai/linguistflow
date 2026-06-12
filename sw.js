@@ -1,26 +1,33 @@
 /*
  * LinguistFlow — Service Worker
  *
- * Strategy:
- *   - App shell (HTML/JS/CSS/data + manifest): cache-first, precached on install
- *   - Original sentence audio (es_guate_*.mp3): cache-first when seen
- *   - User audio from Supabase Storage: stale-while-revalidate (cache fast,
- *     network in background to keep fresh)
- *   - Supabase Storage URLs are recognized by hostname (...supabase.co...) and
- *     pathname containing /audios/
- *   - Other Supabase API calls (auth, postgres) pass straight through to
- *     network — we never want to cache user data or auth tokens
+ * Strategie (Juni 2026 — Rework nach Entfernung des Offline-Modus):
+ *   - App shell (HTML/JS/CSS/data/manifest/icons): NETWORK-FIRST mit
+ *     Cache-Fallback. Damit ist nach jedem Deploy automatisch die neue
+ *     Version live — ein vergessener VERSION-Bump kann den Browser nicht
+ *     mehr dauerhaft auf altem Code festnageln (das war vorher mit
+ *     cache-first der einzige Update-Pfad und ein Single Point of Failure).
+ *     Der Cache dient nur noch als Fallback bei kurzen Netz-Aussetzern.
+ *   - Original sentence audio (es_guate_*.mp3): cache-first — die Dateien
+ *     sind unveränderlich, einmal gehört = gecacht, spart Bandbreite.
+ *   - User audio aus Supabase Storage: stale-while-revalidate (Cache sofort,
+ *     Netz im Hintergrund) — spart Supabase-Egress bei jedem Replay.
+ *   - Der AUDIO-Cache ist UNVERSIONIERT ("audio-v1") und überlebt Deploys.
+ *     Vorher hing er an VERSION und wurde bei jedem Bump komplett gelöscht.
+ *   - Andere Supabase-Calls (Auth, Postgres), ElevenLabs, Anthropic:
+ *     pass-through, niemals cachen (Tokens, User-Daten).
  *
- * Bump VERSION whenever the app shell changes (or whenever you ship new code
- * via GitHub Pages). All older caches are deleted on activate.
+ * VERSION steuert nur noch das Aufräumen alter Shell-Caches beim Activate —
+ * fürs Ausliefern neuer Code-Stände ist sie dank network-first nicht mehr
+ * kritisch. Trotzdem bei Code-Änderungen mitbumpen (Konvention + sauberes
+ * Cache-Housekeeping). Format: lf-vN-YYYY-MM-DD-<kurz-beschreibung>.
  *
- * Paths are RELATIVE so this works on GitHub Pages sub-paths
- * (e.g. https://<user>.github.io/<repo>/) without changes.
+ * Pfade sind RELATIV, damit GitHub-Pages-Subpaths funktionieren.
  */
 
-const VERSION = "lf-v25-2026-06-12-sync-hardening";
+const VERSION = "lf-v26-2026-06-12-sw-network-first";
 const SHELL_CACHE = "shell-" + VERSION;
-const AUDIO_CACHE = "audio-" + VERSION;
+const AUDIO_CACHE = "audio-v1"; // bewusst OHNE Version — überlebt Deploys
 
 const APP_SHELL = [
   "./",
@@ -40,8 +47,8 @@ const APP_SHELL = [
 self.addEventListener("install", function (event) {
   event.waitUntil(
     caches.open(SHELL_CACHE).then(function (cache) {
-      // Use individual adds so that if one optional asset fails (e.g. an icon
-      // isn't deployed yet), the rest still get cached.
+      // Einzelne adds, damit ein fehlendes optionales Asset (z.B. Icon)
+      // nicht den ganzen Precache scheitern lässt.
       return Promise.all(
         APP_SHELL.map(function (url) {
           return cache.add(url).catch(function (err) {
@@ -51,7 +58,7 @@ self.addEventListener("install", function (event) {
       );
     })
   );
-  // Activate this version immediately, don't wait for old tabs to close.
+  // Neue Version sofort aktivieren, nicht auf Tab-Schließung warten.
   self.skipWaiting();
 });
 
@@ -68,8 +75,8 @@ self.addEventListener("activate", function (event) {
 });
 
 function isShellRequest(url) {
-  // Pathname ends with one of the shell-asset filenames.
-  // (We can't compare full URLs because the deployed prefix varies.)
+  // Nur eigene Origin — verhindert, dass z.B. fremde /app.js-Pfade matchen.
+  if (url.origin !== self.location.origin) return false;
   const tails = [
     "/", "/index.html", "/app.js", "/styles.css", "/data.js",
     "/manifest.json",
@@ -82,14 +89,25 @@ function isShellRequest(url) {
 }
 
 function isOriginalAudio(url) {
-  // Original 84 sentence audios: /es_guate_NN.mp3 in the repo
-  return /\/es_guate_\d+\.mp3$/i.test(url.pathname);
+  // Original-Satz-Audios: /es_guate_NN.mp3 im Repo (eigene Origin)
+  return url.origin === self.location.origin
+    && /\/es_guate_\d+\.mp3$/i.test(url.pathname);
 }
 
 function isUserAudio(url) {
-  // User-generated audios live in Supabase Storage under /storage/v1/object/public/audios/...
+  // User-Audios in Supabase Storage: /storage/v1/object/public/audios/...
   return url.hostname.indexOf("supabase.co") !== -1
     && url.pathname.indexOf("/audios/") !== -1;
+}
+
+// Synthetische Fehler-Response statt respondWith(undefined) — sauberer
+// Netzwerkfehler-Pfad, wenn weder Netz noch Cache etwas liefern.
+function offlineResponse() {
+  return new Response("Offline — Inhalt nicht verfügbar.", {
+    status: 503,
+    statusText: "Service Unavailable",
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
 }
 
 self.addEventListener("fetch", function (event) {
@@ -97,23 +115,27 @@ self.addEventListener("fetch", function (event) {
 
   const url = new URL(event.request.url);
 
-  // App shell — cache-first, network fallback
+  // App shell — NETWORK-FIRST, Cache nur als Fallback.
+  // ignoreSearch beim Cache-Match: historische ?v=-Query-Suffixe (inzwischen
+  // aus index.html entfernt) dürfen den Fallback nicht verfehlen lassen.
   if (isShellRequest(url)) {
     event.respondWith(
-      caches.match(event.request).then(function (cached) {
-        return cached || fetch(event.request).then(function (resp) {
-          if (resp && resp.ok) {
-            const copy = resp.clone();
-            caches.open(SHELL_CACHE).then(function (c) { c.put(event.request, copy); });
-          }
-          return resp;
+      fetch(event.request).then(function (resp) {
+        if (resp && resp.ok) {
+          const copy = resp.clone();
+          caches.open(SHELL_CACHE).then(function (c) { c.put(event.request, copy); });
+        }
+        return resp;
+      }).catch(function () {
+        return caches.match(event.request, { ignoreSearch: true }).then(function (cached) {
+          return cached || offlineResponse();
         });
       })
     );
     return;
   }
 
-  // Original 84 sentence audios — cache-first, fill on first request
+  // Original-Audios — cache-first (unveränderlich), Fill beim ersten Hören
   if (isOriginalAudio(url)) {
     event.respondWith(
       caches.match(event.request).then(function (cached) {
@@ -124,13 +146,13 @@ self.addEventListener("fetch", function (event) {
             caches.open(AUDIO_CACHE).then(function (c) { c.put(event.request, copy); });
           }
           return resp;
-        });
+        }).catch(function () { return offlineResponse(); });
       })
     );
     return;
   }
 
-  // User audios from Supabase Storage — stale-while-revalidate
+  // User-Audios aus Supabase Storage — stale-while-revalidate
   if (isUserAudio(url)) {
     event.respondWith(
       caches.match(event.request).then(function (cached) {
@@ -140,18 +162,18 @@ self.addEventListener("fetch", function (event) {
             caches.open(AUDIO_CACHE).then(function (c) { c.put(event.request, copy); });
           }
           return resp;
-        }).catch(function () { return cached; });
+        }).catch(function () { return cached || offlineResponse(); });
         return cached || networkFetch;
       })
     );
     return;
   }
 
-  // Everything else (Supabase Postgres, Auth, ElevenLabs, Anthropic): pass-through.
-  // We deliberately do NOT cache API responses — they contain tokens and per-request data.
+  // Alles andere (Supabase Postgres/Auth, ElevenLabs, Anthropic, Fonts):
+  // pass-through. API-Responses werden NIEMALS gecacht (Tokens, User-Daten).
 });
 
-// Allow the page to ping the SW (e.g. to trigger skipWaiting after an update).
+// Seite kann den SW anpingen (z.B. SKIP_WAITING nach einem Update).
 self.addEventListener("message", function (event) {
   if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
 });
