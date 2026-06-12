@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v32-2026-06-12-intro-graduation-fix";
+const APP_VERSION = "v33-2026-06-12-tagesziel-celebration";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -2722,7 +2722,112 @@ function renderDailyGoal() {
       mini.style.width = pct + "%";
     }
   }
+  maybeCelebrateDailyGoal(g);
 }
+
+// ---- Tagesziel-Celebration (Motivations-Sprint Juni 2026) ---------------
+// Full-Screen-Moment beim Übergang 2/3 → 3/3 — der wichtigste Win-Moment des
+// Tages, exakt 1× pro Tag (localStorage-Guard hl_dg_celebrated = ISO-Datum).
+// WICHTIG: gefeiert wird nur der ÜBERGANG, nie der Zustand — beim App-Start
+// mit bereits erfülltem Ziel feuert nichts (der Tag wird dann still als
+// gefeiert markiert). Läuft gerade eine Übung (car/focus/intro/scene-
+// practice), wird die Celebration zurückgehalten und erst bei Rückkehr aufs
+// Dashboard gezeigt (Flag _dgCelebrationPending; renderDailyGoal läuft dort
+// via updateProgress → renderEngagement sowieso erneut). Der Audio-Sting ist
+// per Default an, abschaltbar in Settings (hl_sound_stings, local-only —
+// bewusst nicht gesynct, Sound-Präferenz ist Geräte-Sache wie Lautstärke).
+const DG_CELEBRATED_KEY = "hl_dg_celebrated";
+const SOUND_STINGS_KEY = "hl_sound_stings";
+let _dgPrevDoneCount = null;
+let _dgCelebrationPending = false;
+
+function soundStingsEnabled() {
+  return localStorage.getItem(SOUND_STINGS_KEY) !== "0"; // Default: an
+}
+
+// Kurzer Dur-Dreiklang (C5–E5–G5) via WebAudio — kein Audio-File, kein
+// Repo-Asset. Läuft immer in einem User-Gesture-Kontext (das 3. Häkchen
+// entsteht nur durch aktive Bedienung), Autoplay-Policy ist also kein Thema.
+let _stingCtx = null;
+function playGoalSting() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!_stingCtx) _stingCtx = new AC();
+    if (_stingCtx.state === "suspended") _stingCtx.resume();
+    const notes = [523.25, 659.25, 783.99];
+    notes.forEach(function (freq, i) {
+      const osc = _stingCtx.createOscillator();
+      const gain = _stingCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      const t = _stingCtx.currentTime + i * 0.12;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.18, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+      osc.connect(gain);
+      gain.connect(_stingCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.55);
+    });
+  } catch (e) { /* Sound ist Bonus — niemals deswegen crashen */ }
+}
+
+function dgSessionRunning() {
+  return ["car", "focus", "intro", "scene-practice"].some(function (c) {
+    return document.body.classList.contains(c);
+  });
+}
+
+function maybeCelebrateDailyGoal(g) {
+  const today = (typeof isoToday === "function") ? isoToday() : new Date().toISOString().slice(0, 10);
+  const already = localStorage.getItem(DG_CELEBRATED_KEY) === today;
+  if (_dgPrevDoneCount === null) {
+    // Erster Render nach App-Start: nur Zustand merken, nichts nachfeiern.
+    if (g.allDone && !already) localStorage.setItem(DG_CELEBRATED_KEY, today);
+    _dgPrevDoneCount = g.doneCount;
+    return;
+  }
+  const crossed = g.allDone && _dgPrevDoneCount < g.total && !already;
+  _dgPrevDoneCount = g.doneCount;
+  if (crossed) _dgCelebrationPending = true;
+  if (_dgCelebrationPending && !dgSessionRunning()) showDailyGoalCelebration();
+}
+
+function showDailyGoalCelebration() {
+  const el = document.getElementById("dg-celebration");
+  if (!el) return;
+  _dgCelebrationPending = false;
+  const today = (typeof isoToday === "function") ? isoToday() : new Date().toISOString().slice(0, 10);
+  localStorage.setItem(DG_CELEBRATED_KEY, today); // erst beim ANZEIGEN markieren (Defer-sicher)
+  const lineEl = document.getElementById("dg-celebration-line");
+  if (lineEl) {
+    const streak = (typeof computeStreak === "function") ? computeStreak() : 0;
+    lineEl.textContent = streak > 1
+      ? ("Tag " + streak + " deiner Serie — komplett.")
+      : "Alle drei Aufgaben erledigt.";
+  }
+  el.style.display = "flex";
+  if (soundStingsEnabled()) playGoalSting();
+}
+
+(function wireDailyGoalCelebration() {
+  const closeBtn = document.getElementById("dg-celebration-close-btn");
+  if (closeBtn) closeBtn.onclick = function () {
+    const el = document.getElementById("dg-celebration");
+    if (el) el.style.display = "none";
+  };
+  const toggle = document.getElementById("sound-stings-toggle");
+  if (toggle) {
+    toggle.classList.toggle("on", soundStingsEnabled());
+    toggle.onclick = function () {
+      const next = !soundStingsEnabled();
+      localStorage.setItem(SOUND_STINGS_KEY, next ? "1" : "0");
+      toggle.classList.toggle("on", next);
+      if (next) playGoalSting(); // direktes Hör-Feedback beim Einschalten
+    };
+  }
+})();
 
 // ---- F2: Abend-Rescue-Banner (Motivations-Sprint Juni 2026) -------------
 // Ab 18 Uhr lokal, wenn heute noch KEINE Aktivität gezählt wurde: dezenter

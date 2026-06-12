@@ -4339,6 +4339,29 @@ body.scene-practice .rescue-banner { display: none !important; }
 .postcard-btn:hover { background: var(--surface-high); }
 .postcard-btn.primary:hover { background: var(--primary-container); }
 
+/* ===== Tagesziel-Celebration (Juni 2026) =====
+   Re-used das .session-postcard-Overlay-Pattern; nur Check-Icon + Headline
+   sind eigen. Pop-Animation 1× beim Einblenden. */
+.dg-celebration-check {
+  margin-bottom: 10px;
+}
+.dg-celebration-check .material-symbols-outlined {
+  font-size: 56px;
+  color: var(--learned);
+  display: inline-block;
+  animation: dgCheckPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes dgCheckPop {
+  0%   { transform: scale(0.3); opacity: 0; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+.dg-celebration-line {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--on-surface);
+  margin-bottom: 8px;
+}
+
 /* ===== Reveal-Cue bei langer SRS-Distanz (B1 · Juni 2026) ===== */
 .card .reveal-cue, .focus-reveal-cue {
   order: 3; /* direkt nach .es im Recall-Flex-Layout */

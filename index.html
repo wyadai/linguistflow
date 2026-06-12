@@ -1445,6 +1445,20 @@
           </div>
         </section>
 
+        <section class="settings-section">
+          <h3 class="settings-section-title">
+            <span class="material-symbols-outlined" style="font-size:20px;">music_note</span>
+            Sounds
+          </h3>
+          <div class="settings-card">
+            <div class="toggle-wrap">
+              <span>Erfolgs-Sound beim Tagesziel (3/3)</span>
+              <div class="toggle on" id="sound-stings-toggle"></div>
+            </div>
+            <small class="side-tiny">Kurzer Dreiklang, wenn alle drei Tagesaufgaben erledigt sind. Gilt nur auf diesem Gerät.</small>
+          </div>
+        </section>
+
         <!-- Hidden legacy elements still referenced by JS. UI ist entfernt,
              aber die JS-Refs müssen bleiben, sonst crasht buildIntroCatSelect()
              oder updatePendingBadge(). -->
@@ -1474,6 +1488,23 @@
           <span class="material-symbols-outlined fill" style="font-size:18px;">play_arrow</span>
           Weiter hören
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tagesziel-Celebration (Juni 2026): Full-Screen-Moment beim Übergang
+       auf 3/3. Erscheint 1× pro Tag; fällt das 3. Häkchen mitten in einer
+       Übung, wartet das Overlay bis zur Rückkehr aufs Dashboard. -->
+  <div class="session-postcard" id="dg-celebration" style="display:none;">
+    <div class="session-postcard-box">
+      <div class="dg-celebration-check">
+        <span class="material-symbols-outlined fill">check_circle</span>
+      </div>
+      <div class="postcard-kicker">Tagesziel geschafft</div>
+      <div class="dg-celebration-line" id="dg-celebration-line"></div>
+      <div class="postcard-tomorrow">Einführung ✓ &nbsp;·&nbsp; Shadowing ✓ &nbsp;·&nbsp; Recall ✓</div>
+      <div class="postcard-actions">
+        <button class="postcard-btn primary" id="dg-celebration-close-btn">Weiter</button>
       </div>
     </div>
   </div>
