@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v29-2026-06-12-srs-graduation";
+const APP_VERSION = "v30-2026-06-12-motivation-sprint-1";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -1450,6 +1450,68 @@ function dueCount() {
   return n;
 }
 
+// Anzahl Karten, die bis MORGEN fällig sind (heute noch offene inklusive) —
+// für den „Morgen"-Ausblick auf der Session-Postkarte (Open Loop, B2/E1).
+function dueCountTomorrow() {
+  const tomorrow = isoAddDays(isoToday(), 1);
+  let n = 0;
+  for (const s of allSentences()) {
+    if (!isPracticeable(s)) continue;
+    if (stageOf(s.id) !== "active") continue;
+    const cs = state.cardState[s.id];
+    if (!cs || !cs.due_at || cs.due_at <= tomorrow) n++;
+  }
+  return n;
+}
+
+// ===== Reveal-Cue (B1 · Motivations-Sprint Juni 2026) =====
+// Variable Reward: Wenn eine aufgedeckte Karte lange weg war (21+ Tage),
+// kurzer grüner Glow + Mikro-Label „Seit N Tagen weg — und du kannst ihn
+// noch." Kein Toast, kein Modal — ein echtes Aha statt Zufalls-Gimmick.
+const REVEAL_CUE_MIN_DAYS = 21;
+function srsGapDays(id) {
+  const cs = state.cardState[id];
+  if (!cs || !cs.last_reviewed_at) return 0;
+  const ms = Date.parse(isoToday() + "T00:00:00") - Date.parse(cs.last_reviewed_at + "T00:00:00");
+  return Math.max(0, Math.round(ms / 86400000));
+}
+// containerEl = .card (Recall-Liste) oder .focus-card (Fokus-Session).
+function maybeShowRevealCue(containerEl, id, isFocus) {
+  if (!containerEl) return;
+  const gap = srsGapDays(id);
+  if (gap < REVEAL_CUE_MIN_DAYS) return;
+  const old = containerEl.querySelector(".reveal-cue, .focus-reveal-cue");
+  if (old) old.remove();
+  const cue = document.createElement("div");
+  cue.className = isFocus ? "focus-reveal-cue" : "reveal-cue";
+  cue.textContent = "Seit " + gap + " Tagen weg — und du kannst ihn noch.";
+  if (isFocus) {
+    // Nach der ES-Seite einfügen
+    const esSide = containerEl.querySelector("#focus-side-es");
+    if (esSide && esSide.parentNode) esSide.parentNode.insertBefore(cue, esSide.nextSibling);
+    else containerEl.appendChild(cue);
+  } else {
+    containerEl.appendChild(cue); // Flex-Order (CSS) positioniert nach .es
+  }
+  containerEl.classList.add("reveal-cue-glow");
+  setTimeout(function () { containerEl.classList.remove("reveal-cue-glow"); }, 1500);
+}
+
+// ===== App-Icon-Badge (H5 · Motivations-Sprint Juni 2026) =====
+// Zeigt die Anzahl heute fälliger Karten auf dem installierten PWA-Icon
+// (Badging API; Android Chrome + Desktop Chrome/Edge). Passiver täglicher
+// Trigger ohne Push-Notification — User-Problem war „App wird gar nicht
+// erst geöffnet". Wird in updateProgress() aktualisiert (läuft bei jeder
+// Rating-/Karten-Änderung) und einmal beim Boot.
+function updateAppBadge() {
+  if (!("setAppBadge" in navigator)) return;
+  try {
+    const n = dueCount();
+    if (n > 0) navigator.setAppBadge(Math.min(n, 99)).catch(function () {});
+    else navigator.clearAppBadge().catch(function () {});
+  } catch (e) { /* Badging nicht verfügbar — egal */ }
+}
+
 // =====================================================================
 // Basis-Statistiken — Counter pro Tag
 // =====================================================================
@@ -2103,6 +2165,8 @@ function revealCard(id) {
   if (idx !== -1) state.currentIdx = idx;
   const card = document.querySelector('.card[data-id="' + id + '"]');
   if (card) card.classList.add("revealed");
+  // B1 Reveal-Cue: nur beim ersten Aufdecken dieser Karte in der Session.
+  if (!wasRevealed) maybeShowRevealCue(card, id, false);
   updatePlayer();
   // Stats: nur das erste Reveal pro Karte pro Session zählen
   if (!wasRevealed) incrementStat("reveals");
@@ -2263,6 +2327,8 @@ function updateProgress() {
   }
   // Engagement-Layer: Dashboard-Elemente (Warum, Hero, Kette, Aspirational).
   if (typeof renderEngagement === "function") renderEngagement();
+  // Motivations-Sprint: App-Icon-Badge mit heute-fällig-Zahl aktuell halten.
+  updateAppBadge();
 }
 
 // =====================================================================
@@ -2331,8 +2397,10 @@ function renderHeroButton() {
     if (sub) sub.textContent = "5 Minuten Shadowing — direkt los, ohne Setup.";
   }
 }
-function startQuickListenSession() {
+// durationMs optional (Default 5 Min). Der Rescue-Banner (F2) ruft mit 60s.
+function startQuickListenSession(durationMs) {
   if (typeof setCarModeActive !== "function" || typeof startCarSession !== "function") return;
+  const ms = (typeof durationMs === "number" && durationMs > 0) ? durationMs : QUICK_LISTEN_DURATION_MS;
   const eligible = carEligibleSentences();
   if (!eligible.length) {
     showToast("Keine Audio-Karten in deinem Shadow-Mode-Filter. Setup öffnen?", 4000);
@@ -2342,11 +2410,12 @@ function startQuickListenSession() {
   // Shadow-Mode-Body-Class setzen + direkt in die Session springen (überspringt Setup).
   setCarModeActive();
   startCarSession();
-  // 5-Min-Auto-Stop. Bestehender Timer wird abgeräumt, falls man's nochmal drückt.
+  // Auto-Stop. Bestehender Timer wird abgeräumt, falls man's nochmal drückt.
   if (_quickListenStopTimer) clearTimeout(_quickListenStopTimer);
   _quickListenStopTimer = setTimeout(function () {
     _quickListenStopTimer = null;
     if (typeof car !== "undefined" && car.active) {
+      const sessionData = collectCarSessionData();
       exitCarSession();
       document.body.classList.remove("car");
       document.body.classList.remove("car-driving");
@@ -2354,9 +2423,10 @@ function startQuickListenSession() {
       // Zurück in Listen-Modus, damit User wieder auf dem Dashboard landet.
       const lb = document.getElementById("listen-mode-btn");
       if (lb) lb.click();
-      showToast("5-Minuten-Session geschafft. Bis morgen!", 4500);
+      // Motivations-Sprint Juni 2026: Postkarte statt Toast — der Win-Moment.
+      showSessionPostcard(sessionData);
     }
-  }, QUICK_LISTEN_DURATION_MS);
+  }, ms);
 }
 
 // ---- F1: Streak-Kette --------------------------------------------------
@@ -2652,6 +2722,24 @@ function renderDailyGoal() {
   }
 }
 
+// ---- F2: Abend-Rescue-Banner (Motivations-Sprint Juni 2026) -------------
+// Ab 18 Uhr lokal, wenn heute noch KEINE Aktivität gezählt wurde: dezenter
+// dunkler Banner überm Tagesziel — „1 Minute reicht". Fordernd, aber ohne
+// Push und ohne Schuldgefühl-Rhetorik. Verschwindet mit der ersten Aktivität
+// (renderEngagement läuft via incrementStat-Hook).
+function todayHasActivity() {
+  const d = (state.stats && state.stats.daily && state.stats.daily[isoToday()]) || null;
+  if (!d) return false;
+  for (const k in d) { if ((Number(d[k]) || 0) > 0) return true; }
+  return false;
+}
+function renderRescueBanner() {
+  const el = document.getElementById("rescue-banner");
+  if (!el) return;
+  const show = new Date().getHours() >= 18 && !todayHasActivity();
+  el.style.display = show ? "flex" : "none";
+}
+
 // ---- Master-Render -----------------------------------------------------
 function renderEngagement() {
   renderWhyAnchor();
@@ -2660,6 +2748,7 @@ function renderEngagement() {
   renderAspirational();
   renderTodayActions();
   renderDailyGoal();
+  renderRescueBanner();
 }
 
 // ---- Wiring -----------------------------------------------------------
@@ -2716,6 +2805,13 @@ function wireEngagement() {
   // D1: Hero-Listen-Button → 5-Min-Quick-Start.
   const heroBtn = document.getElementById("hero-listen-btn");
   if (heroBtn) heroBtn.onclick = function () { startQuickListenSession(); };
+
+  // F2: Rescue-Banner → 1-Minuten-Quick-Start (niedrigste Hürde).
+  const rescueBtn = document.getElementById("rescue-listen-btn");
+  if (rescueBtn) rescueBtn.onclick = function () { startQuickListenSession(60 * 1000); };
+  // Re-Check alle 5 Min: damit der Banner auch auftaucht, wenn die App
+  // einfach offen liegt und 18 Uhr währenddessen vorbeizieht.
+  setInterval(renderRescueBanner, 5 * 60 * 1000);
 
   // E3: Aspirational-Card → 2-Sterne-Karten als Listen-Filter laden.
   const aspBtn = document.getElementById("aspirational-card");
@@ -6590,6 +6686,12 @@ function renderFocusCard() {
   focusRatingsEl.style.display = "none";
   focusMnemonicAreaEl.style.display = "none";
   focusMnemonicAreaEl.innerHTML = "";
+  // B1 Reveal-Cue der vorherigen Karte abräumen (Focus-Card wird recycled).
+  const fc = document.getElementById("focus-card");
+  if (fc) {
+    const oldCue = fc.querySelector(".focus-reveal-cue");
+    if (oldCue) oldCue.remove();
+  }
 
   // Play button enable/disable based on audio availability
   focusPlayBtn.disabled = !hasAudio(s);
@@ -6601,6 +6703,8 @@ function revealFocusCard() {
   focusRevealBtn.style.display = "none";
   focusSideEsEl.style.display = "flex";
   focusRatingsEl.style.display = "grid";
+  // B1 Reveal-Cue: Glow + Label wenn die Karte 21+ Tage weg war.
+  maybeShowRevealCue(document.getElementById("focus-card"), focus.queue[focus.idx], true);
   renderFocusMnemonic();
   // Autoplay nach Reveal — der Reveal-Klick ist die User-Geste,
   // also läuft das in der gleichen Chain und die Autoplay-Policy ist happy.
@@ -7265,6 +7369,9 @@ function startCarSession() {
   car.repCount = 0;
   car.paused = false;
   car.active = true;
+  // Session-Tracking für die End-of-Session-Postkarte (B2, Juni 2026)
+  car._sessionStart = Date.now();
+  car._sessionReps = 0;
 
   carSetupEl.style.display = "none";
   carActiveEl.style.display = "flex";
@@ -7444,6 +7551,8 @@ function playCarCurrent() {
     // playCarCurrent läuft ausschließlich im Shadow Mode, daher zählt jeder
     // erfolgreiche Play hier genau eine Wiederholung fürs Tagespensum.
     incrementStat("shadow_reps");
+    // Session-Counter für die End-of-Session-Postkarte (B2, Juni 2026).
+    car._sessionReps = (car._sessionReps || 0) + 1;
     // Double-Buffer: jetzt den NÄCHSTEN Play in den OTHER-Buf vorladen, damit
     // der Swap beim nächsten ended() ohne src-Reset auskommt.
     preloadOtherBuf();
@@ -7583,11 +7692,83 @@ audioEl.addEventListener("ended", function () {
 });
 
 carStartBtn.onclick = startCarSession;
+// ===== End-of-Session-Postkarte (B2+E1 · Motivations-Sprint Juni 2026) =====
+// Kein Konfetti, kein Toast — drei Zahlen für den Stolz (Minuten, Reps,
+// Serie) und ein „Morgen"-Hint als Open Loop. Erscheint nach beendeten
+// Shadow-Sessions (Beenden-Knopf + Quick-Listen-Auto-Stop), NICHT bei
+// goToDashboard oder Settings-Wechsel (dort will der User woanders hin).
+function collectCarSessionData() {
+  const mins = car._sessionStart
+    ? Math.max(1, Math.round((Date.now() - car._sessionStart) / 60000))
+    : 0;
+  return { minutes: mins, reps: car._sessionReps || 0 };
+}
+function showSessionPostcard(data) {
+  // Leere Session (0 Reps) → nichts feiern, nichts zeigen.
+  if (!data || !data.reps) return;
+  const el = document.getElementById("session-postcard");
+  if (!el) return;
+  const statsEl = document.getElementById("postcard-stats");
+  if (statsEl) {
+    statsEl.innerHTML = "";
+    const items = [
+      { num: data.minutes, lbl: data.minutes === 1 ? "Minute" : "Minuten" },
+      { num: data.reps, lbl: "Reps" },
+    ];
+    for (const it of items) {
+      const d = document.createElement("div");
+      d.className = "postcard-stat";
+      const n = document.createElement("div");
+      n.className = "num";
+      n.textContent = it.num;
+      const l = document.createElement("div");
+      l.className = "lbl";
+      l.textContent = it.lbl;
+      d.appendChild(n); d.appendChild(l);
+      statsEl.appendChild(d);
+    }
+  }
+  const streakEl = document.getElementById("postcard-streak");
+  if (streakEl) {
+    const streak = (typeof computeStreak === "function") ? computeStreak() : 0;
+    streakEl.textContent = streak > 1
+      ? ("Serie: " + streak + " Tage — heute gesichert ✓")
+      : "Heute gezählt ✓";
+  }
+  const tomorrowEl = document.getElementById("postcard-tomorrow");
+  if (tomorrowEl) {
+    const n = (typeof dueCountTomorrow === "function") ? dueCountTomorrow() : 0;
+    tomorrowEl.textContent = n > 0
+      ? ("Morgen warten " + n + " Karte" + (n === 1 ? "" : "n") + " im Recall auf dich.")
+      : "Morgen ist dein Recall frei — einfach nur hören.";
+  }
+  el.style.display = "flex";
+}
+function hideSessionPostcard() {
+  const el = document.getElementById("session-postcard");
+  if (el) el.style.display = "none";
+}
+(function wireSessionPostcard() {
+  const closeBtn = document.getElementById("postcard-close-btn");
+  const contBtn = document.getElementById("postcard-continue-btn");
+  if (closeBtn) closeBtn.onclick = hideSessionPostcard;
+  if (contBtn) contBtn.onclick = function () {
+    hideSessionPostcard();
+    // Direkt wieder rein — ohne Setup-Zwischenschritt (User-Geste vorhanden).
+    if (typeof setCarModeActive === "function" && typeof startCarSession === "function") {
+      setCarModeActive();
+      startCarSession();
+    }
+  };
+})();
+
 carCloseBtn.onclick = function () {
   if (car.idx > 0) {
     if (!confirm("Shadow Mode beenden?")) return;
   }
+  const sessionData = collectCarSessionData();
   exitCarSession();
+  showSessionPostcard(sessionData);
 };
 carSettingsBtn.onclick = function () {
   exitCarSession();

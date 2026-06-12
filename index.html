@@ -202,6 +202,21 @@
            Tages-Countern in state.stats.daily). Häkchen sind NICHT klickbar —
            sie folgen dem Übungsfortschritt. Render via renderDailyGoal() in
            renderEngagement() + Live-Update in incrementStat(). -->
+      <!-- Abend-Rescue-Banner (F2, Motivations-Sprint Juni 2026): erscheint
+           nur ab 18 Uhr, wenn heute noch keine Aktivität gezählt wurde.
+           Render via renderRescueBanner() in renderEngagement(). -->
+      <div class="rescue-banner" id="rescue-banner" style="display:none;">
+        <span class="material-symbols-outlined rescue-icon">bedtime</span>
+        <div class="rescue-text">
+          <div class="rescue-title">Heute noch nichts gehört.</div>
+          <div class="rescue-sub">Eine Minute reicht, um den Tag zu retten.</div>
+        </div>
+        <button class="rescue-btn" id="rescue-listen-btn">
+          <span class="material-symbols-outlined fill" style="font-size:18px;">play_arrow</span>
+          1 Min hören
+        </button>
+      </div>
+
       <div class="daily-goal" id="daily-goal">
         <div class="daily-goal-header">
           <span class="material-symbols-outlined" style="font-size:18px;">checklist</span>
@@ -1451,6 +1466,25 @@
       </div>
 
     </main>
+  </div>
+
+  <!-- End-of-Session-Postkarte (B2, Motivations-Sprint Juni 2026):
+       Vollbild-Overlay nach beendeter Shadow-Session. Drei Zahlen für den
+       Stolz, ein Morgen-Hint für den Open Loop. Kein Konfetti. -->
+  <div class="session-postcard" id="session-postcard" style="display:none;">
+    <div class="session-postcard-box">
+      <div class="postcard-kicker">Session beendet</div>
+      <div class="postcard-stats" id="postcard-stats"></div>
+      <div class="postcard-streak" id="postcard-streak"></div>
+      <div class="postcard-tomorrow" id="postcard-tomorrow"></div>
+      <div class="postcard-actions">
+        <button class="postcard-btn" id="postcard-close-btn">Fertig für heute</button>
+        <button class="postcard-btn primary" id="postcard-continue-btn">
+          <span class="material-symbols-outlined fill" style="font-size:18px;">play_arrow</span>
+          Weiter hören
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- Toast -->

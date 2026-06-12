@@ -25,7 +25,7 @@
  * Pfade sind RELATIV, damit GitHub-Pages-Subpaths funktionieren.
  */
 
-const VERSION = "lf-v29-2026-06-12-srs-graduation";
+const VERSION = "lf-v30-2026-06-12-motivation-sprint-1";
 const SHELL_CACHE = "shell-" + VERSION;
 const AUDIO_CACHE = "audio-v1"; // bewusst OHNE Version — überlebt Deploys
 
