@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v31-2026-06-12-tagesziel-plan";
+const APP_VERSION = "v32-2026-06-12-intro-graduation-fix";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -246,8 +246,16 @@ function getIntroCount(id) {
   return typeof v === "number" ? v : 5;
 }
 function setIntroCount(id, value) {
-  // Storage minimization: anything >= 5 = "active" = default → drop the key.
-  if (value >= 5) delete state.introCounts[id];
+  // BUGFIX Juni 2026: Graduation wird EXPLIZIT als 5 gespeichert. Vorher
+  // wurde der Key gelöscht ("Storage-Minimierung: >=5 = Default → drop") —
+  // aber der Sync-Merge (mergeIntroCounts: explizit gewinnt über fehlend)
+  // konnte "gelöscht = graduiert" nicht von "war nie in Einführung"
+  // unterscheiden. Ein veralteter expliziter Wert (z.B. 4) von der Cloud /
+  // vom anderen Gerät hat die Graduation deshalb bei JEDEM Sync rückgängig
+  // gemacht — Symptom: immer dieselben 5 Sätze in der Einführung, auf allen
+  // Geräten. Explizite 5 gewinnt im Max-Merge gegen jeden alten Stand.
+  // NIEMALS auf das Key-Löschen zurückbauen, solange der Merge existiert.
+  if (value >= 5) state.introCounts[id] = 5;
   else state.introCounts[id] = value;
   saveJSON("hl_intro_counts", state.introCounts);
 }

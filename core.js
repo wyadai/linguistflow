@@ -147,8 +147,12 @@ function mergeCardStateAndRatings(localCardState, localRatings, cloudCardState, 
   return { cardState: mergedCardState, ratings: mergedRatings };
 }
 
-// introCounts: explizite Einträge gewinnen über fehlende (fehlend = 5 =
-// graduiert); sind beide explizit, gewinnt der höhere Fortschritt.
+// introCounts: explizite Einträge gewinnen über fehlende (fehlend = „nie in
+// Einführung" = aktiv); sind beide explizit, gewinnt der höhere Fortschritt.
+// WICHTIG (Bugfix Juni 2026): Graduation MUSS als explizite 5 gespeichert
+// werden (setIntroCount in app.js), NICHT als gelöschter Key — sonst gewinnt
+// ein veralteter expliziter Wert der Gegenseite und macht die Graduation bei
+// jedem Sync rückgängig (Symptom: immer dieselben Sätze in der Einführung).
 function mergeIntroCounts(localIntro, cloudIntro) {
   localIntro = localIntro || {};
   cloudIntro = cloudIntro || {};

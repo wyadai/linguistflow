@@ -151,6 +151,10 @@ Alle Tests laufen ohne Login, ohne Supabase, ohne App-Daten.</p>
   check("explizit > fehlend (Cloud 0 bleibt)", mergeIntroCounts({}, { "5": 0 }), { "5": 0 });
   check("beide explizit → Max", mergeIntroCounts({ "5": 3 }, { "5": 1 }), { "5": 3 });
   check("disjunkte Karten → Union", mergeIntroCounts({ "5": 2 }, { "6": 4 }), { "5": 2, "6": 4 });
+  // Regression Juni 2026: Graduation (explizite 5) darf von einem veralteten
+  // Wert der Gegenseite NICHT rückgängig gemacht werden.
+  check("Graduation 5 schlägt stale 4 (Cloud alt)", mergeIntroCounts({ "7": 5 }, { "7": 4 }), { "7": 5 });
+  check("Graduation 5 schlägt stale 4 (lokal alt)", mergeIntroCounts({ "7": 4 }, { "7": 5 }), { "7": 5 });
 
   // ===== mergeStats =====
   group("mergeStats");
