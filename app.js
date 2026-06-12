@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v28-2026-06-12-konsolidierung-1";
+const APP_VERSION = "v29-2026-06-12-srs-graduation";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -1363,21 +1363,31 @@ function setRating(id, value) {
 }
 
 // =====================================================================
-// SRS · Phase A — fixed intervals per rating
+// SRS · Phase A + Graduation (Juni 2026)
 // =====================================================================
-// 1★ = nochmal morgen, 2★ = in 3 Tagen, 3★ = in einer Woche, gelernt = in 30
-// Tagen. Keine Ease-Factor-Berechnung, keine Lapse-Historie. Eine "gelernte"
-// Karte kommt nach 30 Tagen automatisch zurück — damit löst sich "gelernt" als
-// binärer Endzustand und wird zu einem normalen Stop auf der Skala.
+// Basis-Intervalle: 1★ = nochmal morgen, 2★ = in 3 Tagen, 3★ = in einer
+// Woche, gelernt = in 30 Tagen. Keine Ease-Factor-Berechnung, keine
+// Lapse-Historie. Seit Juni 2026 mit GRADUATION: Erfolg (3★/gelernt) auf
+// eine fällige Karte verdoppelt das bisherige Intervall (30 → 60 → 120 →
+// 180d-Cap) — sonst würde die tägliche Review-Last linear mit dem Korpus
+// wachsen. Lapse (1★/2★) bleibt brutal: Reset aufs Basis-Intervall, egal
+// wo die Karte war. Rechen-Logik: core.js → srsNextInterval().
 
 const SRS_INTERVALS = { 1: 1, 2: 3, 3: 7, learned: 30 };
+// Graduation-Cap (Juni 2026): Erfolgs-Intervalle verdoppeln sich bis max.
+// 180 Tage. Logik in core.js → srsNextInterval() (getestet via tests.html).
+const SRS_MAX_INTERVAL_DAYS = 180;
 
 // isoToday() / isoAddDays() leben seit Juni 2026 in core.js (testbar).
 
 function scheduleNext(id, rating) {
-  const days = SRS_INTERVALS[rating];
-  if (typeof days !== "number") return; // unbekanntes Rating → nichts tun
   const today = isoToday();
+  const prev = state.cardState[id] || null;
+  // Karte gilt als fällig, wenn kein Eintrag existiert (nie bewertet) oder
+  // due_at erreicht/überschritten ist — gleiche Semantik wie isDueToday().
+  const isDue = !prev || !prev.due_at || prev.due_at <= today;
+  const days = srsNextInterval(prev, rating, isDue, SRS_INTERVALS, SRS_MAX_INTERVAL_DAYS);
+  if (days === null) return; // unbekanntes Rating → nichts tun
   state.cardState[id] = {
     interval_days: days,
     due_at: isoAddDays(today, days),

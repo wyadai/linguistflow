@@ -90,6 +90,32 @@ function carSortEligible(eligible, sortKey) {
   return arr;
 }
 
+// ===== SRS-Graduation (Juni 2026) =====
+// Berechnet das nächste Intervall in Tagen. Regeln:
+//   - 1★/2★ = Lapse → BRUTALER Reset aufs Basis-Intervall (1d/3d), egal wo
+//     die Karte vorher war. (Bewusste Design-Entscheidung, nicht ändern.)
+//   - 3★/learned = Erfolg → Intervall wächst: wenn die Karte FÄLLIG war,
+//     verdoppelt sich das bisherige Intervall (mind. Basis-Intervall des
+//     Ratings); Cap bei capDays (180). Ohne Graduation käme jede gelernte
+//     Karte für immer alle 30 Tage zurück — Review-Last wüchse linear mit
+//     dem Korpus.
+//   - Erfolg auf eine NICHT fällige Karte (z.B. Stern-Klick beim Browsen):
+//     Intervall bleibt erhalten (verdoppelt nicht, schrumpft aber auch NIE
+//     unter das bisherige) — sonst würde ein beiläufiger 3★-Klick eine
+//     120d-Karte auf 7d zurückwerfen.
+// Rückgabe: Tage (number) oder null bei unbekanntem Rating.
+function srsNextInterval(prevState, rating, isDue, intervals, capDays) {
+  const base = intervals[rating];
+  if (typeof base !== "number") return null;
+  const isLapse = (rating === 1 || rating === 2 || rating === "1" || rating === "2");
+  if (isLapse) return base;
+  const prev = (prevState && typeof prevState.interval_days === "number" && prevState.interval_days > 0)
+    ? prevState.interval_days : 0;
+  let next = base;
+  if (prev > 0) next = Math.max(base, isDue ? prev * 2 : prev);
+  return Math.min(next, capDays);
+}
+
 // ===== Sync-Merge-Logik (Juni 2026) =====
 // Reine Merge-Funktionen — mergeCardData() in app.js wendet sie auf den
 // State an. Merge-Regeln siehe CLAUDE.md → "Profile sync ist merge-basiert".

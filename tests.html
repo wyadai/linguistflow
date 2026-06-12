@@ -90,6 +90,24 @@ Alle Tests laufen ohne Login, ohne Supabase, ohne App-Daten.</p>
   check("random: gleiche Menge, gleiche Länge", rand.map(function (s) { return s.id; }).sort(function (a, b) { return a - b; }), [1, 3, 90, 95, 99]);
   check("Input-Array bleibt unverändert (slice)", cards.map(function (s) { return s.id; }), [3, 1, 90, 99, 95]);
 
+  // ===== srsNextInterval (SRS-Graduation) =====
+  group("srsNextInterval");
+  const IV = { 1: 1, 2: 3, 3: 7, learned: 30 };
+  const CAP = 180;
+  check("Erstes Rating 3★ (kein prevState) → Basis 7", srsNextInterval(null, 3, true, IV, CAP), 7);
+  check("Erstes Rating learned → Basis 30", srsNextInterval(null, "learned", true, IV, CAP), 30);
+  check("Lapse 1★ auf 120d-Karte → brutal 1", srsNextInterval({ interval_days: 120 }, 1, true, IV, CAP), 1);
+  check("Lapse 2★ auf 60d-Karte → brutal 3", srsNextInterval({ interval_days: 60 }, 2, true, IV, CAP), 3);
+  check("Erfolg learned, fällig, prev 30 → 60", srsNextInterval({ interval_days: 30 }, "learned", true, IV, CAP), 60);
+  check("Erfolg learned, fällig, prev 60 → 120", srsNextInterval({ interval_days: 60 }, "learned", true, IV, CAP), 120);
+  check("Cap: prev 120 verdoppelt → 180 (nicht 240)", srsNextInterval({ interval_days: 120 }, "learned", true, IV, CAP), 180);
+  check("Cap bleibt: prev 180 → 180", srsNextInterval({ interval_days: 180 }, "learned", true, IV, CAP), 180);
+  check("Erfolg 3★, fällig, prev 7 → 14", srsNextInterval({ interval_days: 7 }, 3, true, IV, CAP), 14);
+  check("Erfolg 3★, fällig, prev 1 (nach Lapse) → Basis 7", srsNextInterval({ interval_days: 1 }, 3, true, IV, CAP), 7);
+  check("Erfolg 3★ NICHT fällig, prev 120 → bleibt 120 (schrumpft nie)", srsNextInterval({ interval_days: 120 }, 3, false, IV, CAP), 120);
+  check("Erfolg learned NICHT fällig, prev 7 → Basis 30 (wächst auf min. Basis)", srsNextInterval({ interval_days: 7 }, "learned", false, IV, CAP), 30);
+  check("unbekanntes Rating → null", srsNextInterval(null, "x", true, IV, CAP), null);
+
   // ===== mergeCardStateAndRatings =====
   group("mergeCardStateAndRatings");
   const r1 = mergeCardStateAndRatings(
