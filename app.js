@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v33-2026-06-12-tagesziel-celebration";
+const APP_VERSION = "v34-2026-06-13-shadow-bg-pausen";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -7079,8 +7079,8 @@ const car = {
   cats: new Set(loadJSON("hl_car_cats", [])),
   ratings: new Set(loadJSON("hl_car_ratings", ["unrated", "1", "2", "3"])),
   repeats: loadJSON("hl_car_repeats", 3),
-  shadowPause: loadJSON("hl_car_shadow", 0.5),    // seconds of silence after each playback (shadowing gap)
-  sentencePause: loadJSON("hl_car_gap", 1.0),     // seconds between sentences
+  shadowPause: loadJSON("hl_car_shadow", 2.5),    // seconds of silence after each playback (shadowing gap)
+  sentencePause: loadJSON("hl_car_gap", 2.5),     // seconds between sentences
   // Reihenfolge: "random" (default) | "newest" | "oldest". Ersetzt das alte
   // shuffle-Boolean (Mai 2026). "newest" sortiert User-Sätze nach created_at
   // DESC und hängt die 84 Originale dahinter (ID ASC); "oldest" dreht das um.
@@ -7237,6 +7237,15 @@ if (!localStorage.getItem("hl_car_defaults_v2")) {
   if (car.shadowPause === 3.0) { car.shadowPause = 0.5; localStorage.setItem("hl_car_shadow", "0.5"); }
   if (car.sentencePause === 1.5) { car.sentencePause = 1.0; localStorage.setItem("hl_car_gap", "1.0"); }
   localStorage.setItem("hl_car_defaults_v2", "1");
+}
+
+// One-time migration (Juni 2026): neue Standard-Pausen 2.5s/2.5s. Nur Installs,
+// die noch auf den alten Defaults (0.5/1.0) sitzen, werden angehoben — manuell
+// gesetzte Werte bleiben unangetastet.
+if (!localStorage.getItem("hl_car_defaults_v3")) {
+  if (car.shadowPause === 0.5) { car.shadowPause = 2.5; localStorage.setItem("hl_car_shadow", "2.5"); }
+  if (car.sentencePause === 1.0) { car.sentencePause = 2.5; localStorage.setItem("hl_car_gap", "2.5"); }
+  localStorage.setItem("hl_car_defaults_v3", "1");
 }
 
 function saveCarConfig() {
@@ -7709,11 +7718,17 @@ function carAdvance(skipPause) {
     try { navigator.mediaSession.playbackState = "paused"; } catch (e) {}
   }
 
-  // PWA-Background-Fix: Android/iOS drosseln setTimeout in versteckten Seiten
-  // (1× pro Minute, sobald Audio aus ist). Wenn der Screen gerade gesperrt ist
-  // → keinen Timer schedulen, direkt synchron weitermachen, damit das nächste
-  // audioEl.play() die Tab-"audible"-Status erneuert.
-  const inBackground = typeof document !== "undefined" && document.hidden;
+  // PWA-Background-Pausen-Fix (Juni 2026): Früher haben wir im Hintergrund
+  // (document.hidden) die Pause komplett übersprungen und synchron
+  // weitergemacht — weil Android/iOS setTimeout in versteckten Tabs drosseln,
+  // SOBALD kein Audio läuft. Folge: bei gesperrtem Screen kamen die Sätze ohne
+  // Shadow-/Satz-Pause am Stück. Seit dem Silent-Keepalive (v16/v18) läuft
+  // während der GANZEN Session durchgehend ein stilles Audio-Element — der Tab
+  // bleibt also „audible" und die Timer werden NICHT mehr gedrosselt, auch in
+  // der Pause zwischen zwei Sätzen (da spielt nur das Keepalive). Deshalb
+  // dürfen wir die Pause jetzt auch im Hintergrund regulär via setTimeout
+  // einhalten. NICHT wieder auf den synchronen Skip zurückbauen, solange das
+  // Silent-Keepalive existiert — sonst sind die Pausen im Hintergrund wieder weg.
   const proceedNext = function () {
     if (car.active && !car.paused) {
       renderCarCard();
@@ -7721,15 +7736,15 @@ function carAdvance(skipPause) {
     }
   };
   const schedule = function (delayMs) {
-    if (inBackground) {
+    if (delayMs <= 0) {
       car.pendingTimer = null;
       proceedNext();
-    } else {
-      car.pendingTimer = setTimeout(function () {
-        car.pendingTimer = null;
-        proceedNext();
-      }, delayMs);
+      return;
     }
+    car.pendingTimer = setTimeout(function () {
+      car.pendingTimer = null;
+      proceedNext();
+    }, delayMs);
   };
 
   if (car.repCount < car.repeats) {

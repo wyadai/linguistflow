@@ -25,7 +25,7 @@
  * Pfade sind RELATIV, damit GitHub-Pages-Subpaths funktionieren.
  */
 
-const VERSION = "lf-v33-2026-06-12-tagesziel-celebration";
+const VERSION = "lf-v34-2026-06-13-shadow-bg-pausen";
 const SHELL_CACHE = "shell-" + VERSION;
 const AUDIO_CACHE = "audio-v1"; // bewusst OHNE Version — überlebt Deploys
 
