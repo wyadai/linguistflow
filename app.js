@@ -1,6 +1,6 @@
 // App-Version (in sync mit sw.js VERSION). Wird im Auto-Modus angezeigt,
 // damit auf dem Handy verifizierbar ist welche Build-Version live ist.
-const APP_VERSION = "v34-2026-06-13-shadow-bg-pausen";
+const APP_VERSION = "v35-2026-10-29-srs-rueckstand";
 
 // ===== Supabase configuration =====
 const SUPABASE_URL = "https://cxbgqtvlhwfynfqddxwk.supabase.co";
@@ -1386,6 +1386,10 @@ const SRS_INTERVALS = { 1: 1, 2: 3, 3: 7, learned: 30 };
 // Graduation-Cap (Juni 2026): Erfolgs-Intervalle verdoppeln sich bis max.
 // 180 Tage. Logik in core.js → srsNextInterval() (getestet via tests.html).
 const SRS_MAX_INTERVAL_DAYS = 180;
+// Lapse-Faktor für 2★ (Okt 2026): „Okay / fast erinnert" behält ein Viertel
+// des alten Intervalls (min. Basis 3d) statt brutal auf 3d zu fallen. 1★
+// bleibt brutal (1d). Logik in core.js → srsNextInterval().
+const SRS_LAPSE_FACTOR = 0.25;
 
 // isoToday() / isoAddDays() leben seit Juni 2026 in core.js (testbar).
 
@@ -1395,8 +1399,15 @@ function scheduleNext(id, rating) {
   // Karte gilt als fällig, wenn kein Eintrag existiert (nie bewertet) oder
   // due_at erreicht/überschritten ist — gleiche Semantik wie isDueToday().
   const isDue = !prev || !prev.due_at || prev.due_at <= today;
-  const days = srsNextInterval(prev, rating, isDue, SRS_INTERVALS, SRS_MAX_INTERVAL_DAYS);
+  // Elapsed-Time-Gutschrift (Okt 2026): tatsächlich verstrichene Tage seit der
+  // letzten Review — bei überfälligen Karten zählt das als bewiesenes Intervall.
+  const elapsed = (prev && prev.last_reviewed_at) ? daysBetweenIso(prev.last_reviewed_at, today) : 0;
+  const days = srsNextInterval(prev, rating, isDue, SRS_INTERVALS, SRS_MAX_INTERVAL_DAYS, elapsed, SRS_LAPSE_FACTOR);
   if (days === null) return; // unbekanntes Rating → nichts tun
+  // Tagesportion (Okt 2026): jede Bewertung einer FÄLLIGEN Karte zählt als
+  // erledigte Recall-Karte für das Tagesziel (Stern-Klicks auf nicht-fällige
+  // Karten beim Browsen zählen nicht).
+  if (isDue) incrementStat("recall_done");
   state.cardState[id] = {
     interval_days: days,
     due_at: isoAddDays(today, days),
@@ -1459,6 +1470,70 @@ function dueCount() {
   return n;
 }
 
+// ===== Tagesportion (Okt 2026) =====
+// Problem: nach einer Pause stehen 200+ fällige Karten auf der Uhr — die
+// nackte Zahl demotiviert und das Tagesziel „dueCount == 0" ist unerreichbar.
+// Lösung: eine TAGESPORTION statt harter Cap. Heute-fällige Karten (due_at ==
+// heute) gehören immer dazu; vom RÜCKSTAND (überfällig + nie bewertet) nimmt
+// die Portion mindestens RECALL_PORTION_MIN bzw. ein Siebtel — so ist ein
+// Rückstand in ~7 Tagen weg, ohne dass ein einzelner Tag erschlägt. Die
+// Portion ist ein BODEN, keine Decke: nach der Portion gibt es „Weiter", wer
+// mehr macht, ist schneller durch. Sie wird pro Tag EINGEFROREN
+// (stats.daily[heute].recall_portion), damit sie sich beim Abarbeiten nicht
+// unter den Füßen wegbewegt. Badges, Today-Card und Tagesziel zeigen die
+// Portion; dueCount() bleibt die ehrliche Gesamtzahl.
+const RECALL_PORTION_MIN = 20;
+const RECALL_BACKLOG_DAYS = 7;
+
+// { today: heute fällig (due_at == heute), backlog: überfällig + nie bewertet }
+function dueBreakdown() {
+  const today = isoToday();
+  let dueToday = 0, backlog = 0;
+  for (const s of allSentences()) {
+    if (!isPracticeable(s)) continue;
+    if (stageOf(s.id) !== "active") continue;
+    const cs = state.cardState[s.id];
+    if (!cs || !cs.due_at) { backlog++; continue; }
+    if (cs.due_at < today) backlog++;
+    else if (cs.due_at === today) dueToday++;
+  }
+  return { today: dueToday, backlog: backlog };
+}
+
+function recallPortionComputed() {
+  const b = dueBreakdown();
+  if (b.backlog <= RECALL_PORTION_MIN) return b.today + b.backlog;
+  return b.today + Math.max(RECALL_PORTION_MIN, Math.ceil(b.backlog / RECALL_BACKLOG_DAYS));
+}
+
+// Eingefrorene Portion für heute (wird beim ersten Aufruf des Tages gesetzt).
+// 0 wird nicht eingefroren — wenn später am Tag Karten fällig werden (z.B.
+// nach Intro-Graduation), soll die Portion dann noch greifen.
+function recallPortion() {
+  const today = isoToday();
+  const day = (state.stats && state.stats.daily && state.stats.daily[today]) || null;
+  if (day && typeof day.recall_portion === "number" && day.recall_portion > 0) return day.recall_portion;
+  const p = recallPortionComputed();
+  if (p > 0 && state.stats) {
+    const d = ensureStatsDay(today);
+    d.recall_portion = p;
+    saveJSON("hl_stats", state.stats);
+  }
+  return p;
+}
+
+function recallDoneToday() {
+  const today = isoToday();
+  const day = (state.stats && state.stats.daily && state.stats.daily[today]) || {};
+  return day.recall_done || 0;
+}
+
+// Offener Rest der heutigen Portion — nie mehr als tatsächlich noch fällig.
+function recallPortionRemaining() {
+  const rest = recallPortion() - recallDoneToday();
+  return Math.max(0, Math.min(rest, dueCount()));
+}
+
 // Anzahl Karten, die bis MORGEN fällig sind (heute noch offene inklusive) —
 // für den „Morgen"-Ausblick auf der Session-Postkarte (Open Loop, B2/E1).
 function dueCountTomorrow() {
@@ -1515,7 +1590,7 @@ function maybeShowRevealCue(containerEl, id, isFocus) {
 function updateAppBadge() {
   if (!("setAppBadge" in navigator)) return;
   try {
-    const n = dueCount();
+    const n = recallPortionRemaining(); // Tagesportion, nicht der ganze Rückstand
     if (n > 0) navigator.setAppBadge(Math.min(n, 99)).catch(function () {});
     else navigator.clearAppBadge().catch(function () {});
   } catch (e) { /* Badging nicht verfügbar — egal */ }
@@ -2299,7 +2374,9 @@ function updateIntroModeBtn() {
 }
 
 function updateRecallModeBtn() {
-  const n = dueCount();
+  // Seit Okt 2026: offener Rest der Tagesportion statt Gesamt-Rückstand —
+  // die Zahl im Badge soll machbar aussehen, nicht erschlagen.
+  const n = recallPortionRemaining();
   // Old (hidden) recall-mode-btn badge — kept for backward compat
   if (recallCountBadge) {
     if (n === 0) recallCountBadge.style.display = "none";
@@ -2523,33 +2600,30 @@ function renderTodayActions() {
   const recallCountEl = document.getElementById("today-action-recall-count");
   const recallCard = document.getElementById("today-action-recall");
   if (recallCard) {
-    // Heute fällig vs. überfällig — sauber getrennt, damit der User sieht ob
-    // er "auf Kurs" ist oder Liegengebliebenes nachholt.
-    const todayDate = (typeof isoToday === "function") ? isoToday() : new Date().toISOString().slice(0, 10);
-    let overdue = 0, dueToday = 0;
-    for (const s of allSentences()) {
-      if (s.archived || s.pending) continue;
-      if (typeof stageOf === "function" && stageOf(s.id) !== "active") continue;
-      const cs = state.cardState && state.cardState[s.id];
-      if (!cs || !cs.due_at) continue;
-      if (cs.due_at < todayDate) overdue++;
-      else if (cs.due_at === todayDate) dueToday++;
-    }
-    const total = overdue + dueToday;
+    // Tagesportion (Okt 2026): Pill zeigt den offenen Rest der heutigen
+    // Portion, Sub-Text ordnet ein (heute fällig vs. Rückstand).
+    const bd = dueBreakdown();
+    const total = bd.today + bd.backlog;
+    const portion = recallPortion();
+    const remaining = recallPortionRemaining();
     if (recallSubEl) {
       if (total === 0) {
         recallSubEl.textContent = "heute nichts fällig · Smart-Fallback wartet";
-      } else if (overdue > 0 && dueToday > 0) {
-        recallSubEl.textContent = overdue + " überfällig · " + dueToday + " heute fällig";
-      } else if (overdue > 0) {
-        recallSubEl.textContent = overdue + " überfällig — jetzt nachholen";
+      } else if (remaining === 0) {
+        recallSubEl.textContent = "Portion geschafft · noch " + total + " im Rückstand — Weiter ist freiwillig";
+      } else if (bd.backlog > portion) {
+        recallSubEl.textContent = "heute " + remaining + " von " + portion + " · Rückstand " + bd.backlog + " (in ~" + RECALL_BACKLOG_DAYS + " Tagen weg)";
+      } else if (bd.backlog > 0 && bd.today > 0) {
+        recallSubEl.textContent = bd.backlog + " überfällig · " + bd.today + " heute fällig";
+      } else if (bd.backlog > 0) {
+        recallSubEl.textContent = bd.backlog + " überfällig — jetzt nachholen";
       } else {
-        recallSubEl.textContent = dueToday + " heute fällig laut SRS";
+        recallSubEl.textContent = bd.today + " heute fällig laut SRS";
       }
     }
     if (recallCountEl) {
-      if (total > 0) {
-        recallCountEl.textContent = total;
+      if (remaining > 0) {
+        recallCountEl.textContent = remaining;
         recallCountEl.style.display = "";
       } else {
         recallCountEl.style.display = "none";
@@ -2670,6 +2744,13 @@ function computeDailyGoal() {
   const shadow = d.shadow_reps || 0;
   const introRuns = d.intro_runs || 0;
   const due = (typeof dueCount === "function") ? dueCount() : 0;
+  // Tagesportion (Okt 2026): Recall gilt als erledigt, wenn die heutige
+  // Portion abgearbeitet ist ODER nichts mehr fällig ist — nicht erst bei
+  // dueCount == 0, das ist bei Rückstand wochenlang unerreichbar.
+  const portion = (typeof recallPortion === "function") ? recallPortion() : 0;
+  const recallDone = (typeof recallDoneToday === "function") ? recallDoneToday() : 0;
+  const bd = (typeof dueBreakdown === "function") ? dueBreakdown() : { today: 0, backlog: 0 };
+  const recallOk = due === 0 || (portion > 0 && recallDone >= portion);
   const tasks = [
     {
       key: "intro",
@@ -2690,12 +2771,14 @@ function computeDailyGoal() {
     },
     {
       key: "recall",
-      done: due === 0,
-      progress: due === 0 ? 1 : 0,
-      target: 1,
+      done: recallOk,
+      progress: portion > 0 ? Math.min(recallDone, portion) : (due === 0 ? 1 : 0),
+      target: portion > 0 ? portion : 1,
       sub: due === 0
         ? "Alle fälligen Karten erledigt"
-        : (due + (due === 1 ? " Karte noch fällig" : " Karten noch fällig")),
+        : recallOk
+          ? "Portion geschafft (" + portion + " Karten) · Rückstand " + due
+          : (recallDone + " / " + portion + " Karten" + (bd.backlog > portion ? " · Rückstand " + bd.backlog : "")),
     },
   ];
   const doneCount = tasks.filter(function (t) { return t.done; }).length;
@@ -2950,13 +3033,13 @@ function wireEngagement() {
     if (typeof focus !== "undefined") {
       focus.cats = new Set();
       focus.ratings = new Set();
-      focus.count = "all";
+      focus.count = "portion"; // Tagesportion (Okt 2026)
       focus.order = "random";
       if (typeof buildFocusCatPicker === "function") buildFocusCatPicker();
       if (typeof buildFocusRatingPicker === "function") buildFocusRatingPicker();
       if (typeof focusCountPickerEl !== "undefined" && focusCountPickerEl) {
         focusCountPickerEl.querySelectorAll(".focus-count-chip").forEach(function (b) {
-          b.classList.toggle("active", b.dataset.count === "all");
+          b.classList.toggle("active", b.dataset.count === "portion");
         });
       }
       if (typeof focusOrderPickerEl !== "undefined" && focusOrderPickerEl) {
@@ -6574,7 +6657,7 @@ const focus = {
   // leeres Set — jetzt sind beide Pfade konsistent. Rating-Filter bleibt als
   // explizites Opt-in im Setup wählbar.
   ratings: new Set(),
-  count: 20,                 // 10 / 20 / 50 / "all"
+  count: "portion",          // "portion" (Tagesportion, Default seit Okt 2026) / 10 / 20 / 50 / "all"
   order: "random",           // "random" | "hardest" | "oldest"
   // Session
   active: false,
@@ -6660,7 +6743,7 @@ function wireFocusCountPicker() {
       focusCountPickerEl.querySelectorAll(".focus-count-chip").forEach(function (b) { b.classList.remove("active"); });
       btn.classList.add("active");
       const v = btn.dataset.count;
-      focus.count = v === "all" ? "all" : parseInt(v, 10);
+      focus.count = (v === "all" || v === "portion") ? v : parseInt(v, 10);
       updateFocusSetupSummary();
     };
   });
@@ -6698,9 +6781,27 @@ function focusEligibleSentences() {
   });
 }
 
+// Löst focus.count in eine konkrete Zahl auf. "portion" = offener Rest der
+// Tagesportion (mind. 5, damit der Smart-Fallback nicht leer läuft); wenn die
+// Portion schon geschafft ist, fällt "portion" auf alle Fälligen zurück.
+function focusCountResolved(eligibleLength) {
+  if (focus.count === "all") return eligibleLength;
+  if (focus.count === "portion") {
+    const rest = recallPortionRemaining();
+    return rest > 0 ? Math.min(Math.max(rest, 5), eligibleLength) : eligibleLength;
+  }
+  return Math.min(focus.count, eligibleLength);
+}
+
 function updateFocusSetupSummary() {
   const eligible = focusEligibleSentences();
-  const willPlay = focus.count === "all" ? eligible.length : Math.min(focus.count, eligible.length);
+  const willPlay = focusCountResolved(eligible.length);
+  // Portion-Chip mit Live-Zahl beschriften
+  const portionChip = focusCountPickerEl && focusCountPickerEl.querySelector('.focus-count-chip[data-count="portion"]');
+  if (portionChip) {
+    const rest = recallPortionRemaining();
+    portionChip.textContent = rest > 0 ? "Heute (" + rest + ")" : "Heute";
+  }
   focusSetupSummaryEl.textContent = eligible.length === 0
     ? "Keine Karten in dieser Auswahl"
     : (willPlay + " von " + eligible.length + " Karten");
@@ -6736,7 +6837,7 @@ function startFocusSession() {
   }
 
   // Count cap
-  if (focus.count !== "all") ordered = ordered.slice(0, focus.count);
+  ordered = ordered.slice(0, focusCountResolved(ordered.length));
 
   focus.queue = ordered.map(function (s) { return s.id; });
   focus.idx = 0;
@@ -6967,6 +7068,12 @@ function renderFocusSummary() {
     { label: "Schwierig", value: focus.results[1] || 0 },
     { label: "Dauer", value: timeStr },
   ];
+  // Weiter-Knopf (Okt 2026): solange noch Karten fällig sind, heißt der
+  // Restart-Button „Weiter · noch N fällig" und startet direkt eine neue
+  // Session mit den gleichen Einstellungen — Portion ist ein Boden, keine Decke.
+  const stillDue = dueCount();
+  const restartLabel = focusSummaryRestartBtn && focusSummaryRestartBtn.querySelector("span");
+  if (restartLabel) restartLabel.textContent = stillDue > 0 ? ("Weiter · noch " + stillDue + " fällig") : "Neue Session";
   for (const st of stats) {
     const card = document.createElement("div");
     card.className = "focus-summary-stat";
@@ -7025,6 +7132,11 @@ focusCloseBtn.onclick = function () {
 focusSummaryBackBtn.onclick = function () { endFocusSession("aborted"); };
 focusSummaryRestartBtn.onclick = function () {
   focusSummaryEl.style.display = "none";
+  if (dueCount() > 0 && focusEligibleSentences().length > 0) {
+    // „Weiter": direkt die nächste Session mit gleichen Einstellungen
+    startFocusSession();
+    return;
+  }
   focusSetupEl.style.display = "block";
   updateFocusSetupSummary();
 };

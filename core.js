@@ -104,16 +104,43 @@ function carSortEligible(eligible, sortKey) {
 //     unter das bisherige) — sonst würde ein beiläufiger 3★-Klick eine
 //     120d-Karte auf 7d zurückwerfen.
 // Rückgabe: Tage (number) oder null bei unbekanntem Rating.
-function srsNextInterval(prevState, rating, isDue, intervals, capDays) {
+function srsNextInterval(prevState, rating, isDue, intervals, capDays, elapsedDays, lapseFactor) {
   const base = intervals[rating];
   if (typeof base !== "number") return null;
-  const isLapse = (rating === 1 || rating === 2 || rating === "1" || rating === "2");
-  if (isLapse) return base;
   const prev = (prevState && typeof prevState.interval_days === "number" && prevState.interval_days > 0)
     ? prevState.interval_days : 0;
+  const r = String(rating);
+  // 1★ („Schwierig"): brutaler Reset aufs Basis-Intervall, egal wo die Karte war.
+  if (r === "1") return Math.min(base, capDays);
+  // 2★ („Okay / fast erinnert", Okt 2026): behält einen Bruchteil des alten
+  // Intervalls (lapseFactor, z.B. 0.25 → 90d-Karte kommt in 22d statt 3d),
+  // mindestens aber das Basis-Intervall. Ohne lapseFactor = alter brutaler Reset.
+  if (r === "2") {
+    const f = (typeof lapseFactor === "number" && lapseFactor > 0) ? lapseFactor : 0;
+    return Math.min(Math.max(base, Math.floor(prev * f)), capDays);
+  }
+  // Erfolg (3★/gelernt). Elapsed-Time-Gutschrift (Okt 2026): Wenn die Karte
+  // überfällig war, zählt die TATSÄCHLICH verstrichene Zeit seit der letzten
+  // Review als bewiesenes Intervall — eine 7d-Karte, die nach 40 Tagen noch
+  // sitzt, hat 40d bewiesen und bekommt 80d, nicht 14d. Das lässt einen
+  // Rückstand nach einer Pause kollabieren statt ihn wochenlang zu recyceln.
+  // Gutschrift nur, wenn es überhaupt eine frühere Review gab (prev > 0).
+  const elapsed = (prev > 0 && typeof elapsedDays === "number" && elapsedDays > 0) ? elapsedDays : 0;
   let next = base;
-  if (prev > 0) next = Math.max(base, isDue ? prev * 2 : prev);
+  if (isDue) {
+    const proven = Math.max(prev, elapsed);
+    if (proven > 0) next = Math.max(base, proven * 2);
+  } else if (prev > 0) {
+    next = Math.max(base, prev); // nicht fällig (Stern-Klick beim Browsen): schrumpft nie
+  }
   return Math.min(next, capDays);
+}
+
+// Ganze Tage zwischen zwei ISO-Daten (b − a), lokal, ohne UTC-Verschiebung.
+function daysBetweenIso(a, b) {
+  if (!a || !b) return 0;
+  const ms = new Date(b + "T00:00:00") - new Date(a + "T00:00:00");
+  return Math.round(ms / 86400000);
 }
 
 // ===== Sync-Merge-Logik (Juni 2026) =====
